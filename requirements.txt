@@ -1,0 +1,21 @@
+# Configuration
+pydantic-settings
+python-dotenv
+
+# Database
+sqlalchemy
+psycopg2-binary
+
+# Scraping & Async
+aiohttp
+beautifulsoup4
+tenacity
+
+# Task Queue
+celery
+redis
+
+# Dashboard
+streamlit
+pandas
+plotly
