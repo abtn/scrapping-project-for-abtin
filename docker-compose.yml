@@ -1,6 +1,5 @@
-version: '3.8'
-
 services:
+  # 1. Database
   postgres:
     image: postgres:15
     container_name: scraper_postgres
@@ -8,16 +7,59 @@ services:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
+  # 2. Queue Broker
   redis:
     image: redis:7
     container_name: scraper_redis
+
+  # 3. Scraper Worker (The "Chef")
+  worker:
+    build: .
+    container_name: scraper_worker
+    command: celery -A src.scraper.tasks worker --loglevel=info --concurrency=2
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    environment:
+      - PYTHONPATH=/app  # <--- path
+    env_file: .env
+    volumes:
+      - .:/app # Hot-reloading: Local changes reflect instantly inside container
+
+  # 4. Dashboard (The "UI")
+  dashboard:
+    build: .
+    container_name: scraper_dashboard
+    command: streamlit run src/dashboard/app.py --server.port=8501 --server.address=0.0.0.0
     ports:
-      - "6379:6379"
+      - "8501:8501"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - PYTHONPATH=/app  # <--- path
+    env_file: .env
+    volumes:
+      - .:/app # Hot-reloading
+
+  # 5. Celery Beat (The "Alarm Clock" - Optional for now)
+  beat:
+    build: .
+    container_name: scraper_beat
+    command: celery -A src.scraper.tasks beat --loglevel=info
+    depends_on:
+      - redis
+    env_file: .env
 
 volumes:
   postgres_data:
