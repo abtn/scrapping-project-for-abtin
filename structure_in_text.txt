@@ -1,374 +1,526 @@
-# Dockerized Scraping & Dashboard System with Database Migrations
+# High-Performance Async Scraping Engine with Gevent Pool
 
-## 1. High-Level Architecture (Containerized with Migration Support)
+## 1. High-Level Architecture (Gevent-Based Concurrent Processing)
 
-This system is designed to run in Docker containers with robust database migration capabilities using Alembic. Redis handles task queuing, PostgreSQL provides persistent storage, and Alembic manages schema evolution.
+This system has been transformed into a modular, asynchronous, and fault-tolerant scraping engine running on a high-performance gevent worker pool. The architecture leverages coroutine-based concurrency for massive parallelism while maintaining database integrity and comprehensive logging.
 
 ```text
-┌───────────────────────────────────────────────────────────────────────┐
-│                         DOCKER COMPOSE ENVIRONMENT                    │
-│                                                                       │
-│  1. DATABASE & QUEUE SERVICES                                         │
-│  ┌─────────────────┐       ┌───────────────────────────┐              │
-│  │   PostgreSQL    │       │         Redis             │              │
-│  │  (Data Storage) │       │   (Broker & Cache)        │              │
-│  └─────────────────┘       └─────────────┬─────────────┘              │
-│                                          │                            │
-│  2. APPLICATION SERVICES                 │                            │
-│  ┌───────────────────────────────────────▼──────────────────────────┐ │
-│  │   Celery Worker Container                                        │ │
-│  │   [Scraping | robots.txt | Source Management | DB Logging]       │ │
-│  └───────────────────────────────┬──────────────────────────────────┘ │
-│                                  │                                    │
-│  ┌───────────────────────────────▼──────────────────────────────────┐ │
-│  │   Celery Beat Container                                          │ │
-│  │   (Task Scheduler - Optional)                                    │ │
-│  └──────────────────────────────────────────────────────────────────┘ │
-│                                  │                                    │
-│  ┌───────────────────────────────▼──────────────────────────────────┐ │
-│  │   Streamlit Dashboard Container                                  │ │
-│  │   (Real-time Monitoring & Control)                               │ │
-│  └──────────────────────────────────────────────────────────────────┘ │
-│                                                                       │
-│  3. DATABASE MIGRATION SYSTEM                                         │
-│  ┌──────────────────────────────────────────────────────────────────┐ │
-│  │   Alembic Migrations                                             │ │
-│  │   - Version-controlled schema changes                            │ │
-│  │   - Automated database upgrades/downgrades                       │ │
-│  │   - Environment-aware configuration                              │ │
-│  └──────────────────────────────────────────────────────────────────┘ │
-└───────────────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────────────────┐
+│                         HIGH-PERFORMANCE SCRAPING ENGINE                      │
+│                                                                               │
+│  1. INFRASTRUCTURE LAYER                                                      │
+│  ┌─────────────────┐       ┌───────────────────────────┐                      │
+│  │   PostgreSQL    │       │         Redis             │                      │
+│  │  (Data Storage) │       │   (High-Speed Broker)     │                      │
+│  └─────────────────┘       └─────────────┬─────────────┘                      │
+│                                          │                                    │
+│  2. TASK PROCESSING LAYER (GREENLET POOL)│                                    │
+│  ┌───────────────────────────────────────▼──────────────────────────────────┐ │
+│  │   Celery Worker with Gevent Pool (50 concurrent tasks)                   │ │
+│  │                                                                          │ │
+│  │  ┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐     │ │
+│  │  │ Greenlet 1   │ │ Greenlet 2   │ │ Greenlet 3   │ │ Greenlet 50  │     │ │
+│  │  │ - Fetch      │ │ - Parse      │ │ - Compliance │ │ - Save       │     │ │
+│  │  │ - Retry      │ │ - Extract    │ │ - Check      │ │ - Log        │     │ │
+│  │  └──────────────┘ └──────────────┘ └──────────────┘ └──────────────┘     │ │
+│  │                                                                          │ │
+│  │  All greenlets share:                                                    │ │
+│  │  • Database connections                                                  │ │
+│  │  • HTTP sessions                                                         │ │
+│  │  • Parser instances                                                      │ │
+│  │                                                                          │ │
+│  └───────────────────────────────────────┬──────────────────────────────────┘ │
+│                                          │                                    │
+│  3. APPLICATION LAYER (MODULAR DESIGN)   │                                    │
+│  ┌───────────────────────────────────────▼──────────────────────────────────┐ │
+│  │   Modular Components                                                     │ │
+│  │  ┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐             │ │
+│  │  │   Fetcher       │ │    Parser       │ │   Compliance    │             │ │
+│  │  │ • Retry logic   │ │ • Generic       │ │ • robots.txt    │             │ │
+│  │  │ • UA rotation   │ │ • Extensible    │ │ • Domain check  │             │ │
+│  │  │ • Session mgmt  │ │ • Schema-based  │ │ • Cache         │             │ │
+│  │  └─────────────────┘ └─────────────────┘ └─────────────────┘             │ │
+│  │                                                                          │ │
+│  │  ┌─────────────────┐ ┌─────────────────┐                                 │ │
+│  │  │   Database      │ │    Logger       │                                 │ │
+│  │  │ • Source mgmt   │ │ • Structured    │                                 │ │
+│  │  │ • Upsert logic  │ │ • Task-linked   │                                 │ │
+│  │  │ • Relations     │ │ • Audit trail   │                                 │ │
+│  │  └─────────────────┘ └─────────────────┘                                 │ │
+│  └──────────────────────────────────────────────────────────────────────────┘ │
+│                                                                               │
+│  4. CONTROL & MONITORING LAYER                                                │
+│  ┌──────────────────────────────────────────────────────────────────────────┐ │
+│  │   Streamlit Dashboard                                                    │ │
+│  │   • Real-time queue monitoring                                           │ │
+│  │   • Performance metrics                                                  │ │
+│  │   • Batch URL submission                                                 │ │
+│  │   • Error analysis                                                       │ │
+│  └──────────────────────────────────────────────────────────────────────────┘ │
+└───────────────────────────────────────────────────────────────────────────────┘
 ```
 
-## 2. Technology Stack
+## 2. Technology Stack (Enhanced for High Performance)
 
 *   **Containerization:** Docker, Docker Compose
 *   **Base Image:** Python 3.10-slim
+*   **Concurrency Model:** Gevent (greenlet-based async)
 *   **Database:** PostgreSQL 15 (Containerized)
 *   **Queue/Broker:** Redis 7 (Containerized)
-*   **Task Queue:** Celery with Redis backend
+*   **Task Queue:** Celery with Redis backend + Gevent pool
 *   **Database Migrations:** Alembic
-*   **Scraping:** `requests`, `BeautifulSoup4`, `urllib.robotparser`
-*   **Dashboard:** Streamlit
-*   **ORM:** SQLAlchemy
+*   **HTTP Client:** Requests with session pooling
+*   **HTML Parsing:** BeautifulSoup4 with modular parsers
+*   **Retry Logic:** Tenacity with exponential backoff
+*   **Dashboard:** Streamlit with real-time updates
+*   **ORM:** SQLAlchemy with connection pooling
 *   **Configuration:** Pydantic Settings, python-dotenv
 
-## 3. Enhanced Data Flow with Source Management
+## 3. Performance Architecture
 
-1.  **Task Submission:** URLs submitted via Streamlit dashboard UI
-2.  **Queueing:** Tasks placed in Redis queue via Celery
-3.  **Source Registration:** Automatic domain extraction and source table population
-4.  **Compliance Check:** Mandatory `robots.txt` verification before scraping
-5.  **Fetch:** HTTP request with proper headers and timeout handling
-6.  **Parse:** HTML extraction using BeautifulSoup
-7.  **Data Enrichment:** Structured data extraction (headings, links, metadata)
-8.  **Persistence:** Upsert into PostgreSQL with source relationship
-9.  **Logging:** Structured logging to database for audit and debugging
-10. **Visualization:** Streamlit queries database and displays analytics
+### 3.1 Gevent Worker Pool Configuration
+```
+Worker Configuration:
+• Pool Type: Gevent (coroutine-based)
+• Concurrency: 50 greenlets
+• Throughput: ~50 concurrent HTTP requests
+• Memory: ~2-3MB per greenlet (lightweight)
+• I/O: Non-blocking network operations
+• Scaling: Horizontal scaling possible via --scale worker=3
+```
 
-## 4. Key Components Detail
+### 3.2 Modular Component Design
+```
+┌─────────────────────────────────────────────────────────┐
+│                    TASK EXECUTION FLOW                  │
+├─────────────────────────────────────────────────────────┤
+│ 1. Task Queue (Redis)                                   │
+│    ↓ 50 concurrent tasks                                │
+│ 2. Gevent Worker Pool                                   │
+│    ↓ Each greenlet runs:                                │
+│ 3. Fetcher Module                                       │
+│    • User-Agent rotation                                │
+│    • Retry with exponential backoff                     │
+│    • Connection pooling                                 │
+│ 4. Compliance Check                                     │
+│    • robots.txt validation                              │
+│    • Domain registry                                    │
+│ 5. Parser Module                                        │
+│    • Generic HTML extraction                            │
+│    • Schema-based data extraction                       │
+│ 6. Database Module                                      │
+│    • Source management                                  │
+│    • Upsert operations                                  │
+│    • Relationship mapping                               │
+│ 7. Logger Module                                        │
+│    • Structured logging                                 │
+│    • Audit trail                                        │
+└─────────────────────────────────────────────────────────┘
+```
 
-### 4.1 Enhanced Database Schema
+## 4. Enhanced Project Structure
 
+```
+scrapping-project-for-abtin/
+├── Dockerfile                    # Python 3.10-slim with all dependencies
+├── docker-compose.yml            # Multi-service orchestration (Gevent pool: --concurrency=50)
+├── alembic.ini                   # Alembic configuration for migrations
+├── migrations/                   # Database migration system
+│   ├── env.py                    # Environment-aware migration config
+│   ├── script.py.mako            # Migration template
+│   └── versions/                 # Versioned schema changes
+│       └── 51677a572fd5_initial_schema_with_sources_and_logs.py
+├── requirements.txt              # Enhanced dependencies (gevent, aiodns, etc.)
+├── src/                          # Modular application source code
+│   ├── config.py                 # Configuration with User-Agent rotation
+│   ├── database/                 # Database abstraction layer
+│   │   ├── models.py            # SQLAlchemy models (Source, ScrapedData, Log)
+│   │   ├── connection.py        # Session management with pooling
+│   │   └── __init__.py
+│   ├── scraper/                  # High-performance scraping engine
+│   │   ├── tasks.py             # Main Celery task with gevent concurrency
+│   │   ├── parsers.py           # Modular parser system (generic + extensible)
+│   │   ├── compliance.py        # robots.txt compliance checker
+│   │   └── __init__.py
+│   ├── dashboard/                # Real-time monitoring
+│   │   └── app.py               # Streamlit dashboard with analytics
+│   └── __init__.py
+└── logs/                         # Application logs directory
+```
+
+## 5. Core Components Detail
+
+### 5.1 Gevent Worker Configuration
+```yaml
+# docker-compose.yml worker service
+worker:
+  command: celery -A src.scraper.tasks worker --loglevel=info --pool=gevent --concurrency=50
+  # Key Features:
+  # • --pool=gevent: Uses greenlet-based coroutine pool
+  # • --concurrency=50: 50 concurrent tasks (adjustable)
+  # • Lightweight: Each greenlet ~2-3MB vs thread ~8MB
+  # • Non-blocking I/O: Network requests don't block entire worker
+```
+
+### 5.2 Modular Parser System (`src/scraper/parsers.py`)
+```python
+# Generic parser with extensible architecture
+def parse_generic(soup: BeautifulSoup) -> dict:
+    """Extracts title, headings, links from any HTML"""
+    # Can be extended with:
+    # • Domain-specific parsers (parse_news, parse_ecommerce)
+    # • Schema.org extraction
+    # • Microdata/RDFa parsing
+    # • Custom extraction rules
+```
+
+### 5.3 Enhanced Fetcher with Retry Logic
+```python
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=10),
+    retry=retry_if_exception_type(requests.RequestException)
+)
+def fetch_url(session, url):
+    """Intelligent fetching with:
+    • 3 retry attempts
+    • Exponential backoff (2s, 4s, 8s)
+    • User-Agent rotation
+    • Connection pooling
+    • Timeout handling
+    """
+```
+
+### 5.4 Database Schema (Optimized for High Volume)
 ```sql
--- sources table (domain tracking)
+-- Sources table for domain management
 CREATE TABLE sources (
     id SERIAL PRIMARY KEY,
     domain VARCHAR(255) UNIQUE NOT NULL,
     robots_url VARCHAR(255),
     last_crawled TIMESTAMP,
     is_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_domain_active (domain, is_active)
 );
 
--- scraped_data table (main data storage)
+-- High-performance scraped data storage
 CREATE TABLE scraped_data (
     id SERIAL PRIMARY KEY,
     source_id INTEGER REFERENCES sources(id),
     url VARCHAR UNIQUE NOT NULL,
     title VARCHAR,
     content JSONB,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_url (url),
+    INDEX idx_source_created (source_id, created_at)
+) WITH (autovacuum_enabled = true);
 
--- logs table (audit trail)
+-- Audit logging for debugging
 CREATE TABLE logs (
     id SERIAL PRIMARY KEY,
     level VARCHAR(50),
     task_id VARCHAR,
     url VARCHAR,
     message TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_task_level (task_id, level),
+    INDEX idx_created (created_at DESC)
 );
 ```
 
-### 4.2 Container Services Architecture
+## 6. Performance Characteristics
 
-| Service | Image | Purpose | Ports | Dependencies |
-|---------|-------|---------|-------|--------------|
-| postgres | postgres:15 | Primary database storage | 5432 (internal) | - |
-| redis | redis:7 | Message broker & cache | 6379 (internal) | - |
-| worker | Custom build | Scraping engine with source management | - | postgres, redis |
-| dashboard | Custom build | Monitoring & control UI | 8501:8501 | postgres |
-| beat | Custom build | Scheduled task execution | - | redis |
-
-### 4.3 Migration System (Alembic)
-
-*   **Configuration:** `alembic.ini` with environment-aware settings
-*   **Migration Directory:** `migrations/versions/` for version-controlled schema changes
-*   **Environment Integration:** Automatic detection of Docker vs localhost environments
-*   **Initial Migration:** Creates complete schema with sources, logs, and scraped_data tables
-*   **Future Migrations:** Template-based generation for schema evolution
-
-### 4.4 Enhanced Scraper Logic
-
-*   **Source Management:**
-    *   Automatic domain extraction from URLs
-    *   Source table population with domain tracking
-    *   Timestamp updates for last_crawled
-*   **Compliance Module:** `src/scraper/compliance.py`
-    *   `urllib.robotparser` for robots.txt validation
-    *   Fail-open policy for inaccessible robots.txt
-*   **Structured Logging:**
-    *   Database-backed log storage
-    *   Task-level logging with severity levels
-    *   Error tracking and audit trail
-*   **Data Relationships:**
-    *   Foreign key relationship between scraped_data and sources
-    *   Automatic source_id assignment
-
-### 4.5 Enhanced Dashboard (Streamlit)
-
-*   **Main Page:**
-    *   Real-time data table with scraping results
-    *   Analytics: Links-per-page bar chart
-    *   JSON inspector for detailed content viewing
-*   **Control Panel:**
-    *   Bulk URL submission (one per line)
-    *   Manual task triggering
-    *   Data refresh controls
-*   **Future Enhancements:**
-    *   Source management interface
-    *   Log viewer with filtering
-    *   System health monitoring
-
-## 5. Project Structure
-
+### 6.1 Throughput Estimates
 ```
-scrapping-project-for-abtin/
-├── Dockerfile                    # Single Dockerfile for all Python services
-├── docker-compose.yml            # Multi-service orchestration
-├── alembic.ini                   # Alembic configuration
-├── migrations/                   # Database migration scripts
-│   ├── env.py                    # Migration environment configuration
-│   ├── script.py.mako            # Migration template
-│   └── versions/                 # Versioned migration files
-│       └── 51677a572fd5_initial_schema_with_sources_and_logs.py
-├── .env.example                  # Environment template
-├── requirements.txt              # Python dependencies (now includes alembic)
-├── src/                          # Application source code
-│   ├── config.py                 # Configuration management
-│   ├── database/                 # Database layer
-│   │   ├── models.py            # SQLAlchemy models (enhanced with Source/Log)
-│   │   ├── connection.py        # Database session management
-│   │   └── __init__.py
-│   ├── scraper/                  # Scraping logic
-│   │   ├── tasks.py             # Enhanced Celery tasks with source/logging
-│   │   ├── compliance.py        # robots.txt checking
-│   │   └── __init__.py
-│   ├── dashboard/                # Streamlit UI
-│   │   └── app.py               # Dashboard application
-│   └── __init__.py
-└── logs/                         # Application logs directory
+Single Worker (50 concurrency):
+• Light pages (10KB): ~500 pages/minute
+• Medium pages (100KB): ~200 pages/minute
+• Heavy pages (1MB): ~50 pages/minute
+
+Scaling Options:
+• docker-compose up --scale worker=3 → 150 concurrent tasks
+• Add more Redis instances for queue sharding
+• Implement database read replicas
 ```
 
-## 6. Database Migration Workflow
+### 6.2 Resource Requirements
+```
+Per Worker Container:
+• CPU: 0.5-2 cores (depending on parsing complexity)
+• Memory: 150-300MB (50 greenlets × 3MB + overhead)
+• Network: 10-100Mbps (depending on page sizes)
 
-### Initial Setup
+Database (PostgreSQL):
+• Connections: workers × concurrency + buffer
+• Storage: JSONB compression for content
+• Indexes: Optimized for frequent queries
+```
+
+## 7. Deployment & Scaling Commands
+
+### 7.1 Basic Deployment
 ```bash
-# 1. Start services
-docker-compose up -d postgres redis
-
-# 2. Run initial migration
-docker-compose run --rm worker alembic upgrade head
-
-# 3. Verify tables created
-docker-compose exec postgres psql -U $POSTGRES_USER -d $POSTGRES_DB -c "\dt"
-```
-
-### Creating New Migrations
-```bash
-# 1. Generate new migration after model changes
-docker-compose run --rm worker alembic revision --autogenerate -m "description"
-
-# 2. Apply migration
-docker-compose run --rm worker alembic upgrade head
-
-# 3. Rollback if needed
-docker-compose run --rm worker alembic downgrade -1
-```
-
-### Migration Commands Reference
-```bash
-# Check current revision
-docker-compose run --rm worker alembic current
-
-# Show migration history
-docker-compose run --rm worker alembic history
-
-# Apply specific revision
-docker-compose run --rm worker alembic upgrade <revision_id>
-
-# Create empty migration
-docker-compose run --rm worker alembic revision -m "manual_change"
-```
-
-## 7. Deployment Commands (Docker-Based)
-
-```bash
-# 1. Clone and setup project
+# 1. Clone and configure
 git clone <repository-url>
 cd scrapping-project-for-abtin
-
-# 2. Create environment file
 cp .env.example .env
-# Edit .env with your configuration (POSTGRES_HOST, REDIS_URL, etc.)
+# Edit .env with your settings
 
-# 3. Build and start all services
+# 2. Build and start
 docker-compose up --build -d
 
-# 4. Initialize database with migrations
+# 3. Run migrations
 docker-compose run --rm worker alembic upgrade head
 
-# 5. Monitor services
-docker-compose logs -f [service_name]  # worker, dashboard, postgres, redis
+# 4. Access services
+# Dashboard: http://localhost:8501
+# PostgreSQL: localhost:5432
+# Redis: localhost:6379
+```
 
-# 6. Access services:
-# - Dashboard: http://localhost:8501
-# - PostgreSQL: localhost:5432
-# - Redis: localhost:6379
-
-# 7. Stop services
-docker-compose down
-
-# 8. Complete cleanup (removes volumes)
-docker-compose down -v
-
-# 9. Scale workers
+### 7.2 Performance Tuning
+```bash
+# Scale workers (horizontal scaling)
 docker-compose up -d --scale worker=3
+
+# Monitor queue depth
+docker-compose exec redis redis-cli LLEN celery
+
+# Check worker status
+docker-compose exec worker celery -A src.scraper.tasks status
+
+# View performance metrics
+docker stats $(docker ps -q --filter "name=scraper")
+
+# Adjust concurrency (per worker)
+# Edit docker-compose.yml: --concurrency=100
 ```
 
-## 8. Development Workflow
-
-### Local Development
+### 7.3 Database Optimization
 ```bash
-# 1. Start services with hot-reload
-docker-compose up
+# Monitor database connections
+docker-compose exec postgres psql -U $POSTGRES_USER -d $POSTGRES_DB \
+  -c "SELECT count(*) FROM pg_stat_activity WHERE state = 'active';"
 
-# 2. Make code changes - they automatically reflect due to volume mounting
+# Check table sizes
+docker-compose exec postgres psql -U $POSTGRES_USER -d $POSTGRES_DB \
+  -c "\dt+"
 
-# 3. Database changes workflow:
-#    a. Update models.py
-#    b. Generate migration: docker-compose run --rm worker alembic revision --autogenerate -m "description"
-#    c. Review generated migration file
-#    d. Apply: docker-compose run --rm worker alembic upgrade head
-
-# 4. Test new features
-#    - Add URLs via dashboard
-#    - Monitor logs: docker-compose logs -f worker
-#    - Check database: docker-compose exec postgres psql -U $POSTGRES_USER -d $POSTGRES_DB
+# Analyze query performance
+docker-compose exec postgres psql -U $POSTGRES_USER -d $POSTGRES_DB \
+  -c "EXPLAIN ANALYZE SELECT * FROM scraped_data ORDER BY created_at DESC LIMIT 100;"
 ```
 
-### Production Considerations
-1.  **Migration Strategy:**
-    *   Always test migrations in staging first
-    *   Use `--sql` flag to preview SQL before applying
-    *   Implement rollback procedures
-2.  **Data Integrity:**
-    *   Backup database before migrations
-    *   Use transactions for data migration steps
-3.  **Security:**
-    *   Secure .env file with production credentials
-    *   Consider Docker secrets for sensitive data
-    *   Implement network policies between containers
-4.  **Monitoring:**
-    *   Monitor migration status and errors
-    *   Track database performance metrics
-    *   Set up alerts for failed migrations
+## 8. Advanced Configuration
 
-## 9. Enhanced Features
+### 8.1 Environment Variables for Tuning
+```bash
+# Performance Tuning
+CELERYD_CONCURRENCY=50           # Number of concurrent greenlets
+CELERYD_POOL=gevent              # Pool type
+CELERYD_PREFETCH_MULTIPLIER=1    # Prefetch multiplier for gevent
+CELERYD_MAX_TASKS_PER_CHILD=1000 # Restart worker after N tasks
 
-### Source Management
-- **Automatic Registration:** New domains automatically added to sources table
-- **Activity Tracking:** Last crawled timestamp updated with each scrape
-- **Status Management:** is_active flag for enabling/disabling sources
-- **Relationship Mapping:** Foreign key linking scraped data to sources
+# Database Tuning
+POSTGRES_MAX_CONNECTIONS=100     # Max DB connections
+POSTGRES_SHARED_BUFFERS=128MB    # Shared buffers
+POSTGRES_EFFECTIVE_CACHE_SIZE=1GB # Cache size
 
-### Structured Logging
-- **Database Storage:** Logs persisted in PostgreSQL for long-term retention
-- **Task Correlation:** Log entries linked to Celery task IDs
-- **Severity Levels:** INFO, WARN, ERROR for filtering
-- **URL Context:** Each log entry associated with specific URL
+# Redis Tuning
+REDIS_MAXMEMORY=256mb            # Max memory for Redis
+REDIS_MAXMEMORY_POLICY=allkeys-lru # Eviction policy
+```
 
-### Audit Trail
-- **Complete History:** All scraping activities logged
-- **Error Tracking:** Detailed error messages for debugging
-- **Performance Metrics:** Scraping duration and success rates
-- **Compliance Monitoring:** robots.txt violations tracked
-
-## 10. Future Migration Planning
-
-### Common Migration Patterns
+### 8.2 Gevent-Specific Optimizations
 ```python
-# 1. Add new column
-op.add_column('scraped_data', sa.Column('updated_at', sa.DateTime()))
+# In tasks.py - Gevent monkey patching (optional)
+from gevent import monkey
+monkey.patch_all()
 
-# 2. Add foreign key constraint
-op.create_foreign_key('fk_scraped_data_source', 'scraped_data', 'sources', ['source_id'], ['id'])
+# Session pooling for HTTP connections
+import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
-# 3. Data migration
-def upgrade():
-    # Schema changes
-    op.add_column('sources', sa.Column('scrape_interval', sa.Integer(), nullable=True))
+def create_session():
+    """Create a session with connection pooling and retries"""
+    session = requests.Session()
     
-    # Data updates
-    connection = op.get_bind()
-    connection.execute(
-        "UPDATE sources SET scrape_interval = 3600 WHERE scrape_interval IS NULL"
+    # Connection pooling
+    adapter = HTTPAdapter(
+        pool_connections=100,
+        pool_maxsize=100,
+        max_retries=3,
+        pool_block=False
     )
+    session.mount('http://', adapter)
+    session.mount('https://', adapter)
+    
+    return session
 ```
 
-### Migration Best Practices
-1.  **Keep Migrations Small:** One logical change per migration
-2.  **Test Rollbacks:** Ensure downgrade() functions correctly
-3.  **Avoid Raw SQL:** Use SQLAlchemy operations when possible
-4.  **Document Changes:** Clear migration messages
-5.  **Review Generated Code:** Always inspect autogenerated migrations
+## 9. Monitoring & Alerting
 
-## 11. Monitoring & Troubleshooting
+### 9.1 Key Performance Metrics
+```python
+# Metrics to track:
+METRICS = {
+    "queue_length": "redis.llen('celery')",  # Pending tasks
+    "active_workers": "celery inspect active",  # Running tasks
+    "success_rate": "success_count / total_count * 100",
+    "avg_response_time": "sum(response_times) / count",
+    "error_rate": "error_count / total_count * 100",
+    "db_connections": "pg_stat_activity count",
+    "memory_usage": "container memory usage"
+}
+```
 
-### Key Health Indicators
-1.  **Migration Status:** Current database revision vs expected
-2.  **Source Tracking:** Number of active sources and last crawl times
-3.  **Queue Depth:** Pending tasks in Redis
-4.  **Success Rate:** Successful vs failed scraping tasks
-5.  **Log Volume:** INFO vs ERROR log distribution
-
-### Common Issues & Solutions
+### 9.2 Health Checks
 ```bash
-# Migration conflicts
-docker-compose run --rm worker alembic current
-docker-compose run --rm worker alembic heads
-docker-compose run --rm worker alembic merge heads
+# Worker health
+docker-compose exec worker celery -A src.scraper.tasks inspect ping
 
-# Database connection issues
+# Queue health
+docker-compose exec redis redis-cli PING
+
+# Database health
 docker-compose exec postgres pg_isready -U $POSTGRES_USER -d $POSTGRES_DB
 
-# View recent logs
-docker-compose exec postgres psql -U $POSTGRES_USER -d $POSTGRES_DB -c "SELECT * FROM logs ORDER BY created_at DESC LIMIT 10;"
+# Dashboard health
+curl -f http://localhost:8501/_stcore/health
+```
 
-# Check source statistics
-docker-compose exec postgres psql -U $POSTGRES_USER -d $POSTGRES_DB -c "SELECT domain, COUNT(*) as scrape_count FROM sources JOIN scraped_data ON sources.id = scraped_data.source_id GROUP BY domain;"
+### 9.3 Log Analysis
+```bash
+# Real-time log monitoring
+docker-compose logs -f --tail=100 worker
+
+# Error rate calculation
+docker-compose logs worker 2>/dev/null | \
+  grep -c "ERROR\|FAILED\|Exception" | \
+  awk '{print "Error rate: " $1 " errors in last hour"}'
+
+# Performance bottlenecks
+docker-compose logs worker | \
+  grep "scrape_task" | \
+  awk -F' ' '{print $1, $6}' | \
+  sort | uniq -c | sort -rn
+```
+
+## 10. Fault Tolerance & Recovery
+
+### 10.1 Automatic Recovery Mechanisms
+```python
+# In tasks.py - Comprehensive error handling
+@app.task(bind=True, autoretry_for=(Exception,), 
+          retry_backoff=True, retry_jitter=True, 
+          max_retries=3)
+def scrape_task(self, url):
+    try:
+        # Main scraping logic
+        pass
+    except requests.RequestException as e:
+        # Network errors - retry
+        self.retry(exc=e, countdown=60)
+    except IntegrityError as e:
+        # Database conflicts - log and continue
+        log_event(db, "WARN", f"Integrity error: {e}", task_id, url)
+    except Exception as e:
+        # Unknown errors - log and fail
+        log_event(db, "ERROR", f"Unhandled: {e}", task_id, url)
+        raise
+```
+
+### 10.2 Disaster Recovery Procedures
+```bash
+# 1. Queue recovery (lost tasks)
+docker-compose exec redis redis-cli DEL celery
+
+# 2. Database recovery (corrupted data)
+docker-compose exec postgres pg_dump -U $POSTGRES_USER $POSTGRES_DB > backup.sql
+docker-compose exec postgres psql -U $POSTGRES_USER -d $POSTGRES_DB -c "VACUUM ANALYZE;"
+
+# 3. Worker recovery (stuck processes)
+docker-compose restart worker
+docker-compose exec worker celery -A src.scraper.tasks purge -f
+
+# 4. Full system reset
+docker-compose down -v
+docker-compose up -d
+docker-compose run --rm worker alembic upgrade head
+```
+
+## 11. Extensibility & Future Enhancements
+
+### 11.1 Plugin Architecture
+```python
+# Future: Plugin-based parser system
+PARSERS = {
+    'generic': parse_generic,
+    'news': parse_news_article,
+    'ecommerce': parse_product_page,
+    'social': parse_social_media
+}
+
+def get_parser(url):
+    """Select parser based on URL pattern"""
+    if 'news' in url:
+        return PARSERS['news']
+    elif 'product' in url:
+        return PARSERS['ecommerce']
+    else:
+        return PARSERS['generic']
+```
+
+### 11.2 Rate Limiting & Politeness
+```python
+# Future: Domain-based rate limiting
+from redis import Redis
+import time
+
+def rate_limit_domain(domain, requests_per_minute=60):
+    """Implement domain-specific rate limiting"""
+    redis = Redis.from_url(settings.REDIS_URL)
+    key = f"rate_limit:{domain}"
+    current = redis.incr(key)
+    
+    if current == 1:
+        redis.expire(key, 60)  # Reset every minute
+    
+    if current > requests_per_minute:
+        time.sleep(60 / requests_per_minute)
+```
+
+### 11.3 Advanced Caching
+```python
+# Future: Redis-based caching
+def cache_robots_txt(domain, content, ttl=86400):
+    """Cache robots.txt for 24 hours"""
+    redis = Redis.from_url(settings.REDIS_URL)
+    key = f"robots:{domain}"
+    redis.setex(key, ttl, content)
+
+def get_cached_robots_txt(domain):
+    """Get cached robots.txt"""
+    redis = Redis.from_url(settings.REDIS_URL)
+    key = f"robots:{domain}"
+    return redis.get(key)
 ```
 
 ---
+
+## Summary of Key Advantages
+
+1. **High Performance:** 50x concurrent scraping with gevent greenlets
+2. **Fault Tolerant:** Comprehensive retry logic and error handling
+3. **Modular Design:** Separated concerns for easy maintenance and extension
+4. **Production Ready:** Database migrations, structured logging, monitoring
+5. **Scalable:** Horizontal scaling via Docker Compose
+6. **Resource Efficient:** Lightweight greenlets vs traditional threads
+7. **Real-time Monitoring:** Streamlit dashboard with analytics
+8. **Data Integrity:** Atomic operations with proper database transactions
+9. **Compliance Aware:** robots.txt checking and user-agent rotation
+10. **Developer Friendly:** Hot-reload development, comprehensive documentation
+
+This architecture represents a state-of-the-art web scraping system capable of handling thousands of URLs per hour while maintaining reliability, compliance, and data quality.
