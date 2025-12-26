@@ -1,5 +1,10 @@
 alembic
 
+# NEW: Async & Performance
+gevent
+faust-cchardet
+aiodns
+
 # Configuration
 pydantic-settings
 python-dotenv

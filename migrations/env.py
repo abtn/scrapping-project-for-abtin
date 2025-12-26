@@ -5,7 +5,7 @@ from logging.config import fileConfig
 from sqlalchemy import engine_from_config
 from sqlalchemy import pool
 
-from alembic import context
+from alembic import context # type: ignore
 
 # --- CUSTOM: Add src to path so we can import our models ---
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))

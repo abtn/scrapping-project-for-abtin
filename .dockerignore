@@ -1,0 +1,18 @@
+# Ignore the virtual environment (Biggest culprit!)
+venv/
+.venv/
+
+# Ignore git history
+.git/
+
+# Ignore local secrets and logs
+.env
+logs/
+postgres_data/
+
+# Ignore cache
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.vscode/

@@ -24,7 +24,8 @@ services:
   worker:
     build: .
     container_name: scraper_worker
-    command: celery -A src.scraper.tasks worker --loglevel=info --concurrency=2
+    # UPDATED COMMAND: Switched to the gevent pool
+    command: celery -A src.scraper.tasks worker --loglevel=info --pool=gevent --concurrency=50
     depends_on:
       postgres:
         condition: service_healthy
