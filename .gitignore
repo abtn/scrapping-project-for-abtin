@@ -4,3 +4,5 @@ __pycache__
 *.log
 qwen-code/
 .continue/
+Prompt.txt
+.gitignore

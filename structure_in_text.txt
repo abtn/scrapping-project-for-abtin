@@ -1,148 +1,374 @@
-# Single-Server Scraping & Dashboard System Plan
+# Dockerized Scraping & Dashboard System with Database Migrations
 
-## 1. High-Level Architecture (Monolithic)
+## 1. High-Level Architecture (Containerized with Migration Support)
 
-This system is designed to run entirely on one Ubuntu instance. Redis replaces Kafka for the message queue (lighter), and PostgreSQL is used immediately for robust storage.
+This system is designed to run in Docker containers with robust database migration capabilities using Alembic. Redis handles task queuing, PostgreSQL provides persistent storage, and Alembic manages schema evolution.
 
 ```text
-┌─────────────────────────────────────────────────────────────┐
-│                   SINGLE UBUNTU SERVER                      │
-│                                                             │
-│  1. ORCHESTRATION & QUEUE                                   │
-│  ┌─────────────────┐       ┌───────────────────────────┐    │
-│  │   Scheduler     │──────▶│       Redis Queue         │    │
-│  │ (Celery Beat)   │       │ (Broker & Rate Limiting)  │    │
-│  └─────────────────┘       └─────────────┬─────────────┘    │
-│                                          │                  │
-│  2. WORKERS (Scraping Layer)             │                  │
-│  ┌───────────────────────────────────────▼────────────────┐ │
-│  │   Celery Workers (Python)                              │ │
-│  │   [ aiohttp | BeautifulSoup | robots.txt checker ]     │ │
-│  └───────────────────────────────────────┬────────────────┘ │
-│                                          │                  │
-│  3. STORAGE LAYER                        │                  │
-│  ┌───────────────────────────────────────▼────────────────┐ │
-│  │               PostgreSQL Database                      │ │
-│  │        (Raw HTML, Parsed Data, Logs, Config)           │ │
-│  └───────────────────────────────────────┬────────────────┘ │
-│                                          │                  │
-│  4. VISUALIZATION LAYER                  │                  │
-│  ┌───────────────────────────────────────▼────────────────┐ │
-│  │               Streamlit App                            │ │
-│  │      (Direct SQL queries -> Charts/Tables)             │ │
-│  └────────────────────────────────────────────────────────┘ │
-└─────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────────┐
+│                         DOCKER COMPOSE ENVIRONMENT                    │
+│                                                                       │
+│  1. DATABASE & QUEUE SERVICES                                         │
+│  ┌─────────────────┐       ┌───────────────────────────┐              │
+│  │   PostgreSQL    │       │         Redis             │              │
+│  │  (Data Storage) │       │   (Broker & Cache)        │              │
+│  └─────────────────┘       └─────────────┬─────────────┘              │
+│                                          │                            │
+│  2. APPLICATION SERVICES                 │                            │
+│  ┌───────────────────────────────────────▼──────────────────────────┐ │
+│  │   Celery Worker Container                                        │ │
+│  │   [Scraping | robots.txt | Source Management | DB Logging]       │ │
+│  └───────────────────────────────┬──────────────────────────────────┘ │
+│                                  │                                    │
+│  ┌───────────────────────────────▼──────────────────────────────────┐ │
+│  │   Celery Beat Container                                          │ │
+│  │   (Task Scheduler - Optional)                                    │ │
+│  └──────────────────────────────────────────────────────────────────┘ │
+│                                  │                                    │
+│  ┌───────────────────────────────▼──────────────────────────────────┐ │
+│  │   Streamlit Dashboard Container                                  │ │
+│  │   (Real-time Monitoring & Control)                               │ │
+│  └──────────────────────────────────────────────────────────────────┘ │
+│                                                                       │
+│  3. DATABASE MIGRATION SYSTEM                                         │
+│  ┌──────────────────────────────────────────────────────────────────┐ │
+│  │   Alembic Migrations                                             │ │
+│  │   - Version-controlled schema changes                            │ │
+│  │   - Automated database upgrades/downgrades                       │ │
+│  │   - Environment-aware configuration                              │ │
+│  └──────────────────────────────────────────────────────────────────┘ │
+└───────────────────────────────────────────────────────────────────────┘
 ```
 
 ## 2. Technology Stack
 
-*   **OS:** Ubuntu 22.04 / 24.04 LTS.
-*   **Language:** Python 3.10+.
-*   **Database:** PostgreSQL (Production-grade relational data from Day 1).
-*   **Queue/Broker:** Redis (Handles task distribution and caching).
-*   **Scraping:** `aiohttp` (Async requests), `BeautifulSoup` (Parsing), `Tenacity` (Retries).
-*   **Dashboard:** Streamlit (Python-native UI).
-*   **Process Management:** `Systemd` or `Docker Compose`.
+*   **Containerization:** Docker, Docker Compose
+*   **Base Image:** Python 3.10-slim
+*   **Database:** PostgreSQL 15 (Containerized)
+*   **Queue/Broker:** Redis 7 (Containerized)
+*   **Task Queue:** Celery with Redis backend
+*   **Database Migrations:** Alembic
+*   **Scraping:** `requests`, `BeautifulSoup4`, `urllib.robotparser`
+*   **Dashboard:** Streamlit
+*   **ORM:** SQLAlchemy
+*   **Configuration:** Pydantic Settings, python-dotenv
 
-## 3. Data & Logic Flow
+## 3. Enhanced Data Flow with Source Management
 
-1.  **Ingestion:** Scheduler triggers a task for a target URL.
-2.  **Compliance Check:** **Mandatory** check of `target.com/robots.txt` to confirm scraping is allowed.
-3.  **Fetch:** Async HTTP request (with User-Agent rotation).
-4.  **Parse:** Extract data using CSS selectors/XPath.
-5.  **Persist:** Upsert data into PostgreSQL (prevent duplicates via unique keys).
-6.  **Visualize:** Streamlit queries PostgreSQL and renders metrics/tables.
+1.  **Task Submission:** URLs submitted via Streamlit dashboard UI
+2.  **Queueing:** Tasks placed in Redis queue via Celery
+3.  **Source Registration:** Automatic domain extraction and source table population
+4.  **Compliance Check:** Mandatory `robots.txt` verification before scraping
+5.  **Fetch:** HTTP request with proper headers and timeout handling
+6.  **Parse:** HTML extraction using BeautifulSoup
+7.  **Data Enrichment:** Structured data extraction (headings, links, metadata)
+8.  **Persistence:** Upsert into PostgreSQL with source relationship
+9.  **Logging:** Structured logging to database for audit and debugging
+10. **Visualization:** Streamlit queries database and displays analytics
 
 ## 4. Key Components Detail
 
-### 4.1 Database Schema (PostgreSQL)
-We skip SQLite to avoid migration pain later.
+### 4.1 Enhanced Database Schema
 
 ```sql
+-- sources table (domain tracking)
 CREATE TABLE sources (
     id SERIAL PRIMARY KEY,
-    domain VARCHAR(255) UNIQUE,
+    domain VARCHAR(255) UNIQUE NOT NULL,
     robots_url VARCHAR(255),
-    last_crawled TIMESTAMP
+    last_crawled TIMESTAMP,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- scraped_data table (main data storage)
 CREATE TABLE scraped_data (
     id SERIAL PRIMARY KEY,
     source_id INTEGER REFERENCES sources(id),
-    url TEXT UNIQUE,
-    title TEXT,
-    content_payload JSONB, -- Flexible storage for different schemas
-    crawled_at TIMESTAMP DEFAULT NOW()
+    url VARCHAR UNIQUE NOT NULL,
+    title VARCHAR,
+    content JSONB,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- logs table (audit trail)
 CREATE TABLE logs (
     id SERIAL PRIMARY KEY,
     level VARCHAR(50),
+    task_id VARCHAR,
+    url VARCHAR,
     message TEXT,
-    created_at TIMESTAMP DEFAULT NOW()
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 ```
 
-### 4.2 The Scraper Logic (Compliance First)
+### 4.2 Container Services Architecture
 
-*   **Library:** `urllib.robotparser` (Standard Python lib).
-*   **Logic:**
-    *   Check `robots.txt` cache (TTL: 24 hours).
-    *   If `Allowed`: Proceed with request.
-    *   If `Disallowed`: Log event and skip.
-*   **Rate Limiting:** Use Redis to enforce max 1 request per second per domain.
+| Service | Image | Purpose | Ports | Dependencies |
+|---------|-------|---------|-------|--------------|
+| postgres | postgres:15 | Primary database storage | 5432 (internal) | - |
+| redis | redis:7 | Message broker & cache | 6379 (internal) | - |
+| worker | Custom build | Scraping engine with source management | - | postgres, redis |
+| dashboard | Custom build | Monitoring & control UI | 8501:8501 | postgres |
+| beat | Custom build | Scheduled task execution | - | redis |
 
-### 4.3 The Dashboard (Streamlit)
+### 4.3 Migration System (Alembic)
 
-*   **Page 1: Overview:** Total rows scraped, rows per hour chart, error rates.
-*   **Page 2: Data Inspector:** Searchable table of `scraped_data`.
-*   **Page 3: System Health:** Queue size (Redis), Worker status, Robots.txt rejection logs.
+*   **Configuration:** `alembic.ini` with environment-aware settings
+*   **Migration Directory:** `migrations/versions/` for version-controlled schema changes
+*   **Environment Integration:** Automatic detection of Docker vs localhost environments
+*   **Initial Migration:** Creates complete schema with sources, logs, and scraped_data tables
+*   **Future Migrations:** Template-based generation for schema evolution
 
-## 5. Implementation Roadmap (3 Days)
+### 4.4 Enhanced Scraper Logic
 
-### Day 1: Infrastructure & Database
-1.  Provision Ubuntu server.
-2.  Install Postgres & Redis (`apt install postgresql redis`).
-3.  Set up Python environment (`poetry` or `venv`).
-4.  Implement `models.py` (SQLAlchemy/SQLModel) and apply schema.
+*   **Source Management:**
+    *   Automatic domain extraction from URLs
+    *   Source table population with domain tracking
+    *   Timestamp updates for last_crawled
+*   **Compliance Module:** `src/scraper/compliance.py`
+    *   `urllib.robotparser` for robots.txt validation
+    *   Fail-open policy for inaccessible robots.txt
+*   **Structured Logging:**
+    *   Database-backed log storage
+    *   Task-level logging with severity levels
+    *   Error tracking and audit trail
+*   **Data Relationships:**
+    *   Foreign key relationship between scraped_data and sources
+    *   Automatic source_id assignment
 
-### Day 2: Scraper & Workers
-1.  Implement `robots.py` (Compliance module).
-2.  Create Celery worker tasks for fetching and parsing.
-3.  Implement `aiohttp` logic with error handling (429/500 retries).
-4.  Test scraping on 1 target site.
+### 4.5 Enhanced Dashboard (Streamlit)
 
-### Day 3: Dashboard & Automation
-1.  Build `app.py` using Streamlit.
-2.  Connect Streamlit to Postgres.
-3.  Set up `systemd` services (or Docker Compose) to keep Celery and Streamlit running in the background.
-4.  Define cron schedule (Celery Beat) for periodic scraping.
+*   **Main Page:**
+    *   Real-time data table with scraping results
+    *   Analytics: Links-per-page bar chart
+    *   JSON inspector for detailed content viewing
+*   **Control Panel:**
+    *   Bulk URL submission (one per line)
+    *   Manual task triggering
+    *   Data refresh controls
+*   **Future Enhancements:**
+    *   Source management interface
+    *   Log viewer with filtering
+    *   System health monitoring
 
-## 6. Deployment Commands (Ubuntu Quick-Start)
+## 5. Project Structure
 
-```bash
-# 1. System Setup
-sudo apt update && sudo apt install -y postgresql postgresql-contrib redis-server python3-pip python3-venv
-
-# 2. Database Setup
-sudo -u postgres psql -c "CREATE DATABASE scraper_db;"
-sudo -u postgres psql -c "CREATE USER scraper_user WITH PASSWORD 'secure_password';"
-sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE scraper_db TO scraper_user;"
-
-# 3. Project Setup
-python3 -m venv venv
-source venv/bin/activate
-pip install aiohttp beautifulsoup4 sqlalchemy psycopg2-binary celery redis streamlit
-
-# 4. Run (Dev Mode)
-# Terminal 1: Worker
-celery -A tasks worker --loglevel=info
-# Terminal 2: Dashboard
-streamlit run app.py
+```
+scrapping-project-for-abtin/
+├── Dockerfile                    # Single Dockerfile for all Python services
+├── docker-compose.yml            # Multi-service orchestration
+├── alembic.ini                   # Alembic configuration
+├── migrations/                   # Database migration scripts
+│   ├── env.py                    # Migration environment configuration
+│   ├── script.py.mako            # Migration template
+│   └── versions/                 # Versioned migration files
+│       └── 51677a572fd5_initial_schema_with_sources_and_logs.py
+├── .env.example                  # Environment template
+├── requirements.txt              # Python dependencies (now includes alembic)
+├── src/                          # Application source code
+│   ├── config.py                 # Configuration management
+│   ├── database/                 # Database layer
+│   │   ├── models.py            # SQLAlchemy models (enhanced with Source/Log)
+│   │   ├── connection.py        # Database session management
+│   │   └── __init__.py
+│   ├── scraper/                  # Scraping logic
+│   │   ├── tasks.py             # Enhanced Celery tasks with source/logging
+│   │   ├── compliance.py        # robots.txt checking
+│   │   └── __init__.py
+│   ├── dashboard/                # Streamlit UI
+│   │   └── app.py               # Dashboard application
+│   └── __init__.py
+└── logs/                         # Application logs directory
 ```
 
-## 7. Risk Controls
+## 6. Database Migration Workflow
 
-*   **Robots.txt:** Strict enforcement prevents legal issues.
-*   **Rate Limiting:** 1 request/sec default prevents IP bans.
-*   **Data Validation:** Pydantic models before inserting into Postgres to ensure quality.
+### Initial Setup
+```bash
+# 1. Start services
+docker-compose up -d postgres redis
+
+# 2. Run initial migration
+docker-compose run --rm worker alembic upgrade head
+
+# 3. Verify tables created
+docker-compose exec postgres psql -U $POSTGRES_USER -d $POSTGRES_DB -c "\dt"
+```
+
+### Creating New Migrations
+```bash
+# 1. Generate new migration after model changes
+docker-compose run --rm worker alembic revision --autogenerate -m "description"
+
+# 2. Apply migration
+docker-compose run --rm worker alembic upgrade head
+
+# 3. Rollback if needed
+docker-compose run --rm worker alembic downgrade -1
+```
+
+### Migration Commands Reference
+```bash
+# Check current revision
+docker-compose run --rm worker alembic current
+
+# Show migration history
+docker-compose run --rm worker alembic history
+
+# Apply specific revision
+docker-compose run --rm worker alembic upgrade <revision_id>
+
+# Create empty migration
+docker-compose run --rm worker alembic revision -m "manual_change"
+```
+
+## 7. Deployment Commands (Docker-Based)
+
+```bash
+# 1. Clone and setup project
+git clone <repository-url>
+cd scrapping-project-for-abtin
+
+# 2. Create environment file
+cp .env.example .env
+# Edit .env with your configuration (POSTGRES_HOST, REDIS_URL, etc.)
+
+# 3. Build and start all services
+docker-compose up --build -d
+
+# 4. Initialize database with migrations
+docker-compose run --rm worker alembic upgrade head
+
+# 5. Monitor services
+docker-compose logs -f [service_name]  # worker, dashboard, postgres, redis
+
+# 6. Access services:
+# - Dashboard: http://localhost:8501
+# - PostgreSQL: localhost:5432
+# - Redis: localhost:6379
+
+# 7. Stop services
+docker-compose down
+
+# 8. Complete cleanup (removes volumes)
+docker-compose down -v
+
+# 9. Scale workers
+docker-compose up -d --scale worker=3
+```
+
+## 8. Development Workflow
+
+### Local Development
+```bash
+# 1. Start services with hot-reload
+docker-compose up
+
+# 2. Make code changes - they automatically reflect due to volume mounting
+
+# 3. Database changes workflow:
+#    a. Update models.py
+#    b. Generate migration: docker-compose run --rm worker alembic revision --autogenerate -m "description"
+#    c. Review generated migration file
+#    d. Apply: docker-compose run --rm worker alembic upgrade head
+
+# 4. Test new features
+#    - Add URLs via dashboard
+#    - Monitor logs: docker-compose logs -f worker
+#    - Check database: docker-compose exec postgres psql -U $POSTGRES_USER -d $POSTGRES_DB
+```
+
+### Production Considerations
+1.  **Migration Strategy:**
+    *   Always test migrations in staging first
+    *   Use `--sql` flag to preview SQL before applying
+    *   Implement rollback procedures
+2.  **Data Integrity:**
+    *   Backup database before migrations
+    *   Use transactions for data migration steps
+3.  **Security:**
+    *   Secure .env file with production credentials
+    *   Consider Docker secrets for sensitive data
+    *   Implement network policies between containers
+4.  **Monitoring:**
+    *   Monitor migration status and errors
+    *   Track database performance metrics
+    *   Set up alerts for failed migrations
+
+## 9. Enhanced Features
+
+### Source Management
+- **Automatic Registration:** New domains automatically added to sources table
+- **Activity Tracking:** Last crawled timestamp updated with each scrape
+- **Status Management:** is_active flag for enabling/disabling sources
+- **Relationship Mapping:** Foreign key linking scraped data to sources
+
+### Structured Logging
+- **Database Storage:** Logs persisted in PostgreSQL for long-term retention
+- **Task Correlation:** Log entries linked to Celery task IDs
+- **Severity Levels:** INFO, WARN, ERROR for filtering
+- **URL Context:** Each log entry associated with specific URL
+
+### Audit Trail
+- **Complete History:** All scraping activities logged
+- **Error Tracking:** Detailed error messages for debugging
+- **Performance Metrics:** Scraping duration and success rates
+- **Compliance Monitoring:** robots.txt violations tracked
+
+## 10. Future Migration Planning
+
+### Common Migration Patterns
+```python
+# 1. Add new column
+op.add_column('scraped_data', sa.Column('updated_at', sa.DateTime()))
+
+# 2. Add foreign key constraint
+op.create_foreign_key('fk_scraped_data_source', 'scraped_data', 'sources', ['source_id'], ['id'])
+
+# 3. Data migration
+def upgrade():
+    # Schema changes
+    op.add_column('sources', sa.Column('scrape_interval', sa.Integer(), nullable=True))
+    
+    # Data updates
+    connection = op.get_bind()
+    connection.execute(
+        "UPDATE sources SET scrape_interval = 3600 WHERE scrape_interval IS NULL"
+    )
+```
+
+### Migration Best Practices
+1.  **Keep Migrations Small:** One logical change per migration
+2.  **Test Rollbacks:** Ensure downgrade() functions correctly
+3.  **Avoid Raw SQL:** Use SQLAlchemy operations when possible
+4.  **Document Changes:** Clear migration messages
+5.  **Review Generated Code:** Always inspect autogenerated migrations
+
+## 11. Monitoring & Troubleshooting
+
+### Key Health Indicators
+1.  **Migration Status:** Current database revision vs expected
+2.  **Source Tracking:** Number of active sources and last crawl times
+3.  **Queue Depth:** Pending tasks in Redis
+4.  **Success Rate:** Successful vs failed scraping tasks
+5.  **Log Volume:** INFO vs ERROR log distribution
+
+### Common Issues & Solutions
+```bash
+# Migration conflicts
+docker-compose run --rm worker alembic current
+docker-compose run --rm worker alembic heads
+docker-compose run --rm worker alembic merge heads
+
+# Database connection issues
+docker-compose exec postgres pg_isready -U $POSTGRES_USER -d $POSTGRES_DB
+
+# View recent logs
+docker-compose exec postgres psql -U $POSTGRES_USER -d $POSTGRES_DB -c "SELECT * FROM logs ORDER BY created_at DESC LIMIT 10;"
+
+# Check source statistics
+docker-compose exec postgres psql -U $POSTGRES_USER -d $POSTGRES_DB -c "SELECT domain, COUNT(*) as scrape_count FROM sources JOIN scraped_data ON sources.id = scraped_data.source_id GROUP BY domain;"
+```
+
+---
