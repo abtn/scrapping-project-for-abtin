@@ -1,3 +1,5 @@
+alembic
+
 # Configuration
 pydantic-settings
 python-dotenv
