@@ -1,4 +1,6 @@
-alembic
+# Testing
+pytest
+pytest-mock
 
 # NEW: Async & Performance
 gevent
@@ -12,6 +14,7 @@ python-dotenv
 # Database
 sqlalchemy
 psycopg2-binary
+alembic
 
 # Scraping & Async
 aiohttp

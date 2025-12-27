@@ -9,6 +9,7 @@ venv/
 .env
 logs/
 postgres_data/
+qwen-code/
 
 # Ignore cache
 __pycache__/
