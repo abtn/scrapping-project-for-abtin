@@ -1,6 +1,8 @@
 import streamlit as st
 import pandas as pd
 from sqlalchemy import create_engine
+from pydantic import TypeAdapter, HttpUrl, ValidationError # <--- for validation step
+
 from src.config import settings
 
 # 1. Setup Page
@@ -37,20 +39,43 @@ if st.sidebar.button("🚀 Launch Scraper"):
     if url_input:
         from src.scraper.tasks import app as celery_app
         
-        # Split the input by new lines to get a list
+        # Pydantic V2 Adapter for URL validation
+        url_adapter = TypeAdapter(HttpUrl)
+        
         urls = url_input.strip().split('\n')
         
-        count = 0
-        for url in urls:
-            url = url.strip()
-            if url:
-                celery_app.send_task('src.scraper.tasks.scrape_task', args=[url])
-                count += 1
+        valid_count = 0
+        invalid_urls = []
         
-        st.sidebar.success(f"Queued {count} tasks! Check the main table shortly.")
+        for raw_url in urls:
+            url_str = raw_url.strip()
+            if not url_str:
+                continue # Skip empty lines
+                
+            try:
+                # 1. Validate URL
+                # If invalid, this raises ValidationError
+                url_adapter.validate_python(url_str)
+                
+                # 2. Queue Task (Only if valid)
+                celery_app.send_task('src.scraper.tasks.scrape_task', args=[url_str])
+                valid_count += 1
+                
+            except ValidationError:
+                invalid_urls.append(url_str)
+        
+        # 3. User Feedback
+        if valid_count > 0:
+            st.sidebar.success(f"✅ Queued {valid_count} tasks!")
+            
+        if invalid_urls:
+            st.sidebar.error(f"❌ Skipped {len(invalid_urls)} invalid URLs:")
+            for bad_url in invalid_urls:
+                st.sidebar.caption(f"- {bad_url}")
+                
     else:
         st.sidebar.warning("Please enter at least one URL.")
-# -----------------------------
+# -----------------------------------------
 # 5. Display Stats
 df = load_data()
 
