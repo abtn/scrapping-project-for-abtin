@@ -2,7 +2,10 @@
 pytest
 pytest-mock
 
-# NEW: Async & Performance
+# Monitoring
+flower
+
+# Async & Performance
 gevent
 faust-cchardet
 aiodns
