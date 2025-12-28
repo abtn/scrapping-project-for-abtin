@@ -62,9 +62,16 @@ jobs:
     # 5. RUN TESTS
     # ---------------------------------------------------------
     - name: Run Tests with Pytest
+      # Add this 'env' block to prevent import errors
+      env:
+        POSTGRES_USER: test_user
+        POSTGRES_PASSWORD: test_pass
+        POSTGRES_HOST: localhost
+        POSTGRES_PORT: 5432
+        POSTGRES_DB: test_db
+        REDIS_URL: redis://localhost:6379/0
       run: |
         # Set PYTHONPATH to ensure tests can import 'src' correctly
-        # This is equivalent to running 'export PYTHONPATH=...'
         export PYTHONPATH=$PYTHONPATH:.
         
         # Run pytest with verbose output
