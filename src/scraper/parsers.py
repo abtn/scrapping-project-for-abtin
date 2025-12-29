@@ -1,18 +1,47 @@
+import trafilatura # type: ignore
+import json
 from bs4 import BeautifulSoup
 
-def parse_generic(soup: BeautifulSoup) -> dict:
+def parse_smart(html_content: str, url: str) -> dict:
     """
-    A generic parser that extracts title, headings, and links.
+    Uses Trafilatura to extract the 'meat' of the article.
+    Falls back to BeautifulSoup for basic metadata if Trafilatura fails.
     """
-    # FIX: Use get_text(strip=True) to handle empty or complex title tags
-    page_title = soup.title.get_text(strip=True) if soup.title else "No Title"
+    # 1. Trafilatura Extraction (The Heavy Lifting)
+    # include_comments=False, include_tables=False for cleaner text
+    extracted = trafilatura.extract(
+        html_content, 
+        url=url,
+        include_images=True,
+        include_links=False,
+        output_format='json',
+        with_metadata=True
+    )
+
+    data = {}
     
-    headings = [h.get_text(strip=True) for h in soup.find_all('h2')]
-    links = [a['href'] for a in soup.find_all('a', href=True) if 'http' in a['href']]
+    if extracted:
+        try:
+            t_data = json.loads(extracted)
+            
+            data['title'] = t_data.get('title')
+            data['author'] = t_data.get('author')
+            data['published_date'] = t_data.get('date')
+            data['clean_text'] = t_data.get('text')
+            data['main_image'] = t_data.get('image')
+            
+            # Generate a summary if excerpt isn't available
+            text_body = t_data.get('text', '')
+            excerpt = t_data.get('excerpt')
+            data['summary'] = excerpt if excerpt else (text_body[:200] + "..." if len(text_body) > 200 else text_body)
+        except json.JSONDecodeError:
+            # Trafilatura returned something that isn't valid JSON (rare)
+            pass
     
-    return {
-        "title": page_title,
-        "headings": headings[:5],
-        "links_found": len(links),
-        "sample_links": links[:5]
-    }
+    # 2. Fallback / Augmentation (BeautifulSoup)
+    # Sometimes Trafilatura misses the title or we want specific tags
+    if not data.get('title'):
+        soup = BeautifulSoup(html_content, 'html.parser')
+        data['title'] = soup.title.get_text(strip=True) if soup.title else "No Title"
+
+    return data

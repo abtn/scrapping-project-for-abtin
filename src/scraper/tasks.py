@@ -6,12 +6,13 @@ from urllib.parse import urlparse
 from datetime import datetime, timezone
 from sqlalchemy.exc import IntegrityError
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from src.scraper.parsers import parse_smart
 
 from src.config import settings
 from src.database.connection import SessionLocal
 from src.database.models import ScrapedData, Source, ScrapedLog
 from src.scraper.compliance import is_allowed
-from src.scraper.parsers import parse_generic
+from src.scraper.parsers import parse_smart # type: ignore
 
 app = Celery('scraper', broker=settings.REDIS_URL)
 
@@ -98,8 +99,6 @@ def scrape_task(self, url):
 
         # 2. Fetch Data (High Performance)
         try:
-            # We create a Session for every task to reuse TCP connections if needed
-            # (Though in single-url tasks, it mainly helps with cookie handling if we add it later)
             with requests.Session() as session:
                 html_content, final_url = fetch_url(session, url)
                 
@@ -108,15 +107,47 @@ def scrape_task(self, url):
             log_event(db, "ERROR", msg, task_id, url)
             return "Failed"
 
-        # 3. Parse Data
-        soup = BeautifulSoup(html_content, 'html.parser')
-        extracted_data = parse_generic(soup)
+        # 3. Parse Data (Smart)
+        # We pass the raw HTML text and the URL to the new parser
+        extracted_data = parse_smart(html_content, final_url) # type: ignore
         
+        # We keep rich_content for the JSON blob if needed, 
+        # but the important data now goes to specific columns.
         rich_content = {
-            "status": "success",
             "scraped_at": datetime.now(timezone.utc).isoformat(),
-            **extracted_data
+            "raw_metadata": extracted_data # Store everything else in JSON
         }
+
+        # 4. Save to Database (Upsert with New Columns)
+        existing_record = db.query(ScrapedData).filter(ScrapedData.url == url).first()
+        
+        source_id_val = source.id if source else None
+        
+        # Define the data dictionary to be inserted/updated
+        update_data = {
+            "title": extracted_data.get('title'),
+            "author": extracted_data.get('author'),
+            "published_date": extracted_data.get('published_date'),
+            "summary": extracted_data.get('summary'),
+            "main_image": extracted_data.get('main_image'),
+            "clean_text": extracted_data.get('clean_text'),
+            "content": rich_content,
+            "source_id": source_id_val
+        }
+
+        if existing_record:
+            # New (Type Happy)
+            db.query(ScrapedData).filter(ScrapedData.url == url).update(**update_data)
+            log_event(db, "INFO", f"Updated rich data for {domain}", task_id, url)
+        else:
+            new_data = ScrapedData(
+                url=url,
+                **update_data # Unpack dictionary to set fields
+            )
+            db.add(new_data)
+            log_event(db, "INFO", f"Created rich data for {domain}", task_id, url)
+        
+        db.commit()
 
         # 4. Save to Database (Upsert)
         existing_record = db.query(ScrapedData).filter(ScrapedData.url == url).first()

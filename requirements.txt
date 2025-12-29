@@ -23,6 +23,8 @@ alembic
 aiohttp
 beautifulsoup4
 tenacity
+trafilatura # New
+lxml_html_clean # New
 
 # Task Queue
 celery

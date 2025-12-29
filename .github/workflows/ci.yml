@@ -1,4 +1,4 @@
-name: CI Pipeline
+name: CI/CD Pipeline
 
 # Trigger the workflow on push or pull request to the main branch
 on:
@@ -8,61 +8,31 @@ on:
     branches: [ "main" ]
 
 jobs:
-  # Define a job named 'test'
+  # ---------------------------------------------------------
+  # JOB 1: TEST (Run Pytest)
+  # ---------------------------------------------------------
   test:
-    # The runner environment (Ubuntu is standard, fast, and free)
     runs-on: ubuntu-latest
-
-    # Strategy matrix allows you to test against multiple versions (optional, but good practice)
-    # For now, we stick to the version in your Dockerfile: 3.10
     strategy:
       matrix:
         python-version: ["3.10"]
 
     steps:
-    # ---------------------------------------------------------
-    # 1. CHECKOUT
-    # ---------------------------------------------------------
     - name: Checkout Code
-      # Uses the official GitHub action to clone your repo
       uses: actions/checkout@v4
 
-    # ---------------------------------------------------------
-    # 2. SETUP PYTHON
-    # ---------------------------------------------------------
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v5
       with:
         python-version: ${{ matrix.python-version }}
-        # Cache pip dependencies automatically to speed up setup
         cache: 'pip'
 
-    # ---------------------------------------------------------
-    # 3. INSTALL DEPENDENCIES
-    # ---------------------------------------------------------
     - name: Install Dependencies
       run: |
-        # Upgrade pip to the latest version
         python -m pip install --upgrade pip
-        # Install all requirements (including pytest, celery, etc.)
         pip install -r requirements.txt
-        
-    # ---------------------------------------------------------
-    # 4. RUN LINTER (Optional but Recommended for Enterprise)
-    # ---------------------------------------------------------
-    # - name: Lint with Flake8
-    #   run: |
-    #     pip install flake8
-    #     # Stop the build if there are Python syntax errors or undefined names
-    #     flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-    #     # Exit-zero treats all errors as warnings
-    #     flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
 
-    # ---------------------------------------------------------
-    # 5. RUN TESTS
-    # ---------------------------------------------------------
     - name: Run Tests with Pytest
-      # Add this 'env' block to prevent import errors
       env:
         POSTGRES_USER: test_user
         POSTGRES_PASSWORD: test_pass
@@ -71,19 +41,39 @@ jobs:
         POSTGRES_DB: test_db
         REDIS_URL: redis://localhost:6379/0
       run: |
-        # Set PYTHONPATH to ensure tests can import 'src' correctly
         export PYTHONPATH=$PYTHONPATH:.
-        
-        # Run pytest with verbose output
         pytest -v
 
-    # ---------------------------------------------------------
-    # 6. UPLOAD ARTIFACTS (Optional)
-    # ---------------------------------------------------------
-    # If you generate a coverage report or test logs, you can upload them here
-    # - name: Upload Test Results
-    #   if: always()
-    #   uses: actions/upload-artifact@v4
-    #   with:
-    #     name: test-results
-    #     path: test-results/
+  # ---------------------------------------------------------
+  # JOB 2: DEPLOY (SSH into Server & Upgrade)
+  # ---------------------------------------------------------
+  # deploy:
+  #   # Only run this job if 'test' succeeded
+  #   needs: test
+  #   runs-on: ubuntu-latest
+
+  #   steps:
+  #   - name: Deploy to Ubuntu Server via SSH
+  #     uses: appleboy/ssh-action@v1.0.3
+  #     with:
+  #       host: ${{ secrets.SSH_HOST }}
+  #       username: ${{ secrets.SSH_USER }}
+  #       key: ${{ secrets.SSH_KEY }}
+  #       # This script runs on your remote server
+  #       script: |
+  #         cd ${{ secrets.PROJECT_PATH }}
+          
+  #         # 1. Pull the latest code
+  #         git pull origin main
+          
+  #         # 2. Rebuild and restart containers
+  #         # --no-cache is important to pick up new Python packages (like trafilatura)
+  #         docker-compose down
+  #         docker-compose build --no-cache
+  #         docker-compose up -d
+          
+  #         # 3. Run Database Migrations (CRITICAL)
+  #         # The -T flag disables pseudo-TTY allocation, needed for SSH automation
+  #         docker-compose exec -T worker alembic upgrade head
+          
+  #         echo "Deployment Successful!"
