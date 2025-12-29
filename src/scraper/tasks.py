@@ -136,39 +136,19 @@ def scrape_task(self, url):
         }
 
         if existing_record:
-            # New (Type Happy)
-            db.query(ScrapedData).filter(ScrapedData.url == url).update(**update_data)
+            # Update existing record
+            # We use the unpacking operator (**) to pass the dict as arguments
+            for key, value in update_data.items():
+                setattr(existing_record, key, value)
             log_event(db, "INFO", f"Updated rich data for {domain}", task_id, url)
         else:
+            # Create new record
             new_data = ScrapedData(
                 url=url,
                 **update_data # Unpack dictionary to set fields
             )
             db.add(new_data)
             log_event(db, "INFO", f"Created rich data for {domain}", task_id, url)
-        
-        db.commit()
-
-        # 4. Save to Database (Upsert)
-        existing_record = db.query(ScrapedData).filter(ScrapedData.url == url).first()
-        source_id_val = source.id if source else None
-        
-        if existing_record:
-            db.query(ScrapedData).filter(ScrapedData.url == url).update({
-                "title": extracted_data.get('title', 'No Title'),
-                "content": rich_content,
-                "source_id": source_id_val
-            })
-            log_event(db, "INFO", f"Updated data for {domain}", task_id, url)
-        else:
-            new_data = ScrapedData(
-                url=url,
-                title=extracted_data.get('title', 'No Title'),
-                content=rich_content,
-                source_id=source_id_val
-            )
-            db.add(new_data)
-            log_event(db, "INFO", f"Created new data for {domain}", task_id, url)
         
         db.commit()
         return "Success"
