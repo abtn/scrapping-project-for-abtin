@@ -23,8 +23,8 @@ alembic
 aiohttp
 beautifulsoup4
 tenacity
-trafilatura # New
-lxml_html_clean # New
+trafilatura 
+lxml_html_clean 
 
 # Task Queue
 celery
@@ -34,3 +34,7 @@ redis
 streamlit
 pandas
 plotly
+
+# API
+fastapi # TODO: Adding FastAPI for API development
+uvicorn # ASGI server for FastAPI

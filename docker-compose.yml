@@ -73,5 +73,22 @@ services:
       - redis
     env_file: .env
     
+  # 7. FastAPI Backend (The "Server")
+  api:
+    build: .
+    container_name: scraper_api
+    # Run uvicorn server, reload allows you to change code without restarting docker
+    command: uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --reload
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - PYTHONPATH=/app
+    env_file: .env
+    volumes:
+      - .:/app
+  
 volumes:
   postgres_data:
