@@ -45,3 +45,15 @@ class ScrapedData(Base):
     # Retain this for any extra data that doesn't fit the columns
     content = Column(JSON) 
     created_at = Column(DateTime, default=datetime.now(timezone.utc))
+    
+    # --- NEW TABLE --- Scheduled Jobs ---
+class ScheduledJob(Base):
+    __tablename__ = 'scheduled_jobs'
+    
+    id = Column(Integer, primary_key=True)
+    name = Column(String(255), nullable=False)  # e.g., "TechCrunch Home"
+    url = Column(String, nullable=False)        # e.g., "https://techcrunch.com"
+    interval_seconds = Column(Integer, default=3600) 
+    is_active = Column(Boolean, default=True)   
+    last_triggered_at = Column(DateTime, nullable=True) 
+    created_at = Column(DateTime, default=datetime.now(timezone.utc))

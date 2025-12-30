@@ -66,7 +66,7 @@ services:
   flower:
     build: .
     container_name: scraper_flower
-    command: celery -A src.scraper.tasks flower --port=5555
+    command: celery -A src.scraper.tasks flower --port=5555 --broker=redis://redis:6379/0
     ports:
       - "5555:5555"
     depends_on:

@@ -1,18 +1,18 @@
 import random
 import requests
 from celery import Celery
+from celery.schedules import crontab
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
 from datetime import datetime, timezone
 from sqlalchemy.exc import IntegrityError
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
-from src.scraper.parsers import parse_smart
 
 from src.config import settings
-from src.database.connection import SessionLocal
-from src.database.models import ScrapedData, Source, ScrapedLog
 from src.scraper.compliance import is_allowed
-from src.scraper.parsers import parse_smart # type: ignore
+from src.scraper.parsers import parse_smart
+from src.database.connection import SessionLocal
+from src.database.models import ScrapedData, Source, ScrapedLog, ScheduledJob
 
 app = Celery('scraper', broker=settings.REDIS_URL)
 
@@ -57,7 +57,6 @@ def fetch_url(session, url):
     return response.text, response.url
 
 # --- CORE LOGIC ---
-# Note: No 'async def' needed. Gevent handles the concurrency.
 @app.task(bind=True) 
 def scrape_task(self, url):
     task_id = self.request.id
@@ -76,7 +75,7 @@ def scrape_task(self, url):
                 source = Source(
                     domain=domain,
                     robots_url=f"{parsed.scheme}://{domain}/robots.txt",
-                    last_crawled=datetime.now(timezone.utc) # time fixed
+                    last_crawled=datetime.now(timezone.utc)
                 )
                 db.add(source)
                 db.commit()
@@ -86,7 +85,7 @@ def scrape_task(self, url):
                 source = db.query(Source).filter(Source.domain == domain).first()
         
         if source:
-            source.last_crawled = datetime.now(timezone.utc) # pyright: ignore
+            source.last_crawled = datetime.now(timezone.utc) # type: ignore
             db.commit()
         # ---------------------------
 
@@ -108,14 +107,11 @@ def scrape_task(self, url):
             return "Failed"
 
         # 3. Parse Data (Smart)
-        # We pass the raw HTML text and the URL to the new parser
-        extracted_data = parse_smart(html_content, final_url) # type: ignore
+        extracted_data = parse_smart(html_content, final_url)
         
-        # We keep rich_content for the JSON blob if needed, 
-        # but the important data now goes to specific columns.
         rich_content = {
             "scraped_at": datetime.now(timezone.utc).isoformat(),
-            "raw_metadata": extracted_data # Store everything else in JSON
+            "raw_metadata": extracted_data 
         }
 
         # 4. Save to Database (Upsert with New Columns)
@@ -137,7 +133,6 @@ def scrape_task(self, url):
 
         if existing_record:
             # Update existing record
-            # We use the unpacking operator (**) to pass the dict as arguments
             for key, value in update_data.items():
                 setattr(existing_record, key, value)
             log_event(db, "INFO", f"Updated rich data for {domain}", task_id, url)
@@ -145,7 +140,7 @@ def scrape_task(self, url):
             # Create new record
             new_data = ScrapedData(
                 url=url,
-                **update_data # Unpack dictionary to set fields
+                **update_data 
             )
             db.add(new_data)
             log_event(db, "INFO", f"Created rich data for {domain}", task_id, url)
@@ -160,3 +155,62 @@ def scrape_task(self, url):
         return "Error"
     finally:
         db.close()
+
+# --- SCHEDULER LOGIC ---
+@app.task
+def periodic_check_task():
+    """
+    Dynamic Manager: Queries scheduled_jobs table and executes based on interval.
+    """
+    print("⏰ [BEAT] Checking database for active schedules...")
+    db = SessionLocal()
+    try:
+        # 1. Get all active jobs
+        active_jobs = db.query(ScheduledJob).filter(ScheduledJob.is_active == True).all()
+        
+        now = datetime.now(timezone.utc)
+        tasks_dispatched = 0
+        
+        for job in active_jobs:
+            should_run = False
+            
+            # 2. Logic: Time math
+            if job.last_triggered_at is None:
+                should_run = True # Never ran before
+            else:
+                # Ensure we are comparing offset-aware datetimes
+                last_run = job.last_triggered_at.replace(tzinfo=timezone.utc) if job.last_triggered_at.tzinfo is None else job.last_triggered_at
+                delta = now - last_run
+                
+                if delta.total_seconds() >= job.interval_seconds:
+                    should_run = True
+            
+            # 3. Dispatch
+            if should_run:
+                print(f"✅ [BEAT] Triggering job: {job.name} ({job.url})")
+                scrape_task.delay(job.url) # type: ignore
+                
+                # Update timestamp
+                job.last_triggered_at = now # type: ignore
+                tasks_dispatched += 1
+        
+        if tasks_dispatched > 0:
+            db.commit()
+            return f"Dispatched {tasks_dispatched} tasks."
+            
+        return "No tasks due."
+
+    except Exception as e:
+        db.rollback()
+        print(f"❌ [BEAT] Error: {e}")
+        return "Error"
+    finally:
+        db.close()
+
+# --- REPLACES OLD SCHEDULE ---
+app.conf.beat_schedule = {
+    'dynamic-dispatcher': {
+        'task': 'src.scraper.tasks.periodic_check_task',
+        'schedule': 60.0,  # Check the DB every 60 seconds
+    },
+}

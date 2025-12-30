@@ -4,6 +4,8 @@ from sqlalchemy import create_engine
 from pydantic import TypeAdapter, HttpUrl, ValidationError # <--- for validation step
 
 from src.config import settings
+from src.database.connection import SessionLocal # <--- NEW IMPORT
+from src.database.models import ScheduledJob     # <--- NEW IMPORT
 
 # 1. Setup Page
 st.set_page_config(page_title="Scraper Dashboard", layout="wide")
@@ -109,3 +111,93 @@ if not df.empty:
         st.json(row['content'])
 else:
     st.info("No data found yet. Run some tasks!")
+    
+# --- NEW SECTION: SCHEDULED JOBS OVERVIEW ---
+st.divider()
+st.header("🕒 Task Scheduler")
+
+# 1. Form to ADD a new schedule
+with st.expander("➕ Add New Scheduled Task", expanded=False):
+    with st.form("add_schedule_form", clear_on_submit=True):
+        col1, col2 = st.columns(2)
+        with col1:
+            new_name = st.text_input("Task Name", placeholder="e.g., Daily Tech News")
+            new_url = st.text_input("Target URL", placeholder="https://example.com")
+        with col2:
+            new_interval = st.number_input("Interval (Seconds)", min_value=60, value=3600, step=60, help="3600 = 1 hour")
+        
+        submitted = st.form_submit_button("Create Schedule")
+        if submitted:
+            if new_name and new_url:
+                db = SessionLocal()
+                try:
+                    new_job = ScheduledJob(
+                        name=new_name,
+                        url=new_url,
+                        interval_seconds=new_interval,
+                        is_active=True
+                    )
+                    db.add(new_job)
+                    db.commit()
+                    st.success(f"✅ Schedule '{new_name}' added!")
+                except Exception as e:
+                    st.error(f"Error: {e}")
+                finally:
+                    db.close()
+            else:
+                st.warning("Please fill in Name and URL.")
+
+# 2. Display and MANAGE existing schedules
+st.subheader("Active Schedules")
+
+# Use a fresh session for this section
+db_sched = SessionLocal()
+try:
+    jobs = db_sched.query(ScheduledJob).order_by(ScheduledJob.created_at.desc()).all()
+    
+    if jobs:
+        # Prepare data for display
+        jobs_data = []
+        for job in jobs:
+            jobs_data.append({
+                "ID": job.id,
+                "Name": job.name,
+                "URL": job.url,
+                "Interval": f"{job.interval_seconds}s",
+                "Active": "✅" if job.is_active else "❌",
+                "Last Run": job.last_triggered_at.strftime("%Y-%m-%d %H:%M:%S") if job.last_triggered_at else "Never"
+            })
+        
+        st.dataframe(pd.DataFrame(jobs_data), use_container_width=True)
+
+        # 3. Simple Management Controls
+        st.write("### Actions")
+        col_act1, col_act2 = st.columns(2)
+        
+        # Select Box
+        job_options = {f"{j.id} - {j.name}": j.id for j in jobs}
+        selected_label = st.selectbox("Select Task to Manage:", options=list(job_options.keys()))
+        
+        if selected_label:
+            selected_id = job_options[selected_label]
+            
+            with col_act1:
+                if st.button("🔄 Toggle On/Off"):
+                    job_to_toggle = db_sched.query(ScheduledJob).filter(ScheduledJob.id == selected_id).first()
+                    if job_to_toggle:
+                        job_to_toggle.is_active = not job_to_toggle.is_active
+                        db_sched.commit()
+                        st.rerun()
+
+            with col_act2:
+                if st.button("🗑️ Delete Task", type="primary"):
+                    job_to_delete = db_sched.query(ScheduledJob).filter(ScheduledJob.id == selected_id).first()
+                    if job_to_delete:
+                        db_sched.delete(job_to_delete)
+                        db_sched.commit()
+                        st.rerun()
+    else:
+        st.info("No scheduled tasks yet.")
+
+finally:
+    db_sched.close()

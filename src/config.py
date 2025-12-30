@@ -8,7 +8,11 @@ class Settings:
     DB_URL = f"postgresql://{os.getenv('POSTGRES_USER')}:{os.getenv('POSTGRES_PASSWORD')}@{os.getenv('POSTGRES_HOST')}:{os.getenv('POSTGRES_PORT')}/{os.getenv('POSTGRES_DB')}"
     REDIS_URL = os.getenv('REDIS_URL')
     
-    # NEW: List of User-Agents to rotate
+    # NEW: Timezone & Default Interval
+    TIMEZONE = 'Asia/Tehran'
+    DEFAULT_INTERVAL = 3600
+    
+    # List of User-Agents to rotate
     USER_AGENTS = [
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
