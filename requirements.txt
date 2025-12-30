@@ -38,3 +38,4 @@ plotly
 # API
 fastapi # TODO: Adding FastAPI for API development
 uvicorn # ASGI server for FastAPI
+httpx # HTTP client for async requests
