@@ -1,4 +1,4 @@
-from fastapi.testclient import TestClient
+from fastapi.testclient import TestClient # type: ignore
 from src.api.main import app
 
 # Create a test client (like a fake web browser)
