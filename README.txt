@@ -11,11 +11,11 @@
 
 Unlike traditional scrapers that blindly download text, this system is an **Active Agent**:
 
-1.  **AI Enrichment:** Every article is sent to a local "Brain" (Ollama running Phi-3.5 or Llama 3) to generate a **3-sentence summary**, **tags**, **category**, and an **urgency score (1-10)**.
-2.  **Adaptive Scheduling:** The system "learns" from the content.
-    *   *High Urgency (Breaking News):* Re-scrapes every 5 minutes.
-    *   *Low Urgency (Evergreen):* Backs off to once every 24 hours.
-3.  **Microservices Architecture:** Fully decoupled services (Ingest, Worker, Storage, API, AI) running via Docker Compose.
+1. **AI Enrichment:** Every article is sent to a local "Brain" (Ollama running Phi-3.5 or Llama 3) to generate a **3-sentence summary**, **tags**, **category**, and an **urgency score (1-10)**.
+2. **Adaptive Scheduling:** The system "learns" from the content.
+    * *High Urgency (Breaking News):* Re-scrapes every 5 minutes.
+    * *Low Urgency (Evergreen):* Backs off to once every 24 hours.
+3. **Microservices Architecture:** Fully decoupled services (Ingest, Worker, Storage, API, AI) running via Docker Compose.
 
 ## 🏗️ Architecture
 
@@ -34,7 +34,7 @@ graph TD
 
     User -->|Manage Rules| Dash
     User -->|Search Data| API
-    
+
     Dash -->|Save Rules| DB
     Beat -->|Check Schedule| DB
     Beat -->|Dispatch Task| Redis
@@ -43,15 +43,16 @@ graph TD
     Worker -->|Analyze Text| Brain
     Worker -->|Save Rich Data| DB
 ```
+
 ## 🚀 Quick Start
 
 ### Prerequisites
-*   **Docker & Docker Compose**
-*   (Optional) NVIDIA GPU for faster AI inference (works on CPU too).
+* **Docker & Docker Compose**
+* (Optional) NVIDIA GPU for faster AI inference (works on CPU too).
 
 ### 1. Clone & Configure
 ```bash
-git clone https://github.com/YOUR_USERNAME/scrapping-project-for-abtin.git
+git clone https://github.com/abtn/scrapping-project-for-abtin.git
 cd scrapping-project-for-abtin
 
 # Create the environment file
@@ -89,14 +90,14 @@ docker exec scraper_api alembic upgrade head
 
 ### 1. Management Dashboard (Ingestion)
 **URL:** `http://localhost:8501`
-*   **Bulk Add:** Paste a list of URLs to scrape immediately.
-*   **Scheduler:** Create, edit, and delete recurring scraping jobs.
-*   **Analytics:** View data quality stats.
+* **Bulk Add:** Paste a list of URLs to scrape immediately.
+* **Scheduler:** Create, edit, and delete recurring scraping jobs.
+* **Analytics:** View data quality stats.
 
 ### 2. API & Documentation (Consumption)
 **URL:** `http://localhost:8000/docs`
-*   **GET /api/v1/articles**: Search articles with filtering (`?q=keyword`).
-*   **GET /api/v1/articles/{id}**: Retrieve full clean text and AI metadata.
+* **GET /api/v1/articles**: Search articles with filtering (`?q=keyword`).
+* **GET /api/v1/articles/{id}**: Retrieve full clean text and AI metadata.
 
 ---
 
@@ -131,13 +132,10 @@ docker compose up -d
 
 ## 📦 Tech Stack
 
-*   **Language:** Python 3.10
-*   **Queue:** Celery + Redis
-*   **Concurrency:** Gevent (High-performance I/O)
-*   **Database:** PostgreSQL + SQLAlchemy + Alembic
-*   **AI/ML:** Ollama (Local Inference)
-*   **Web Frameworks:** FastAPI (Backend), Streamlit (Frontend)
-*   **Parsing:** Trafilatura + BeautifulSoup4
-```
-
-
+* **Language:** Python 3.10
+* **Queue:** Celery + Redis
+* **Concurrency:** Gevent (High-performance I/O)
+* **Database:** PostgreSQL + SQLAlchemy + Alembic
+* **AI/ML:** Ollama (Local Inference)
+* **Web Frameworks:** FastAPI (Backend), Streamlit (Frontend)
+* **Parsing:** Trafilatura + BeautifulSoup4
