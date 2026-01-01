@@ -265,7 +265,7 @@ if not df.empty:
         if not df['ai_category'].dropna().empty:
             cat_counts = df['ai_category'].value_counts()
             fig_pie = px.pie(values=cat_counts.values, names=cat_counts.index, hole=0.4)
-            st.plotly_chart(fig_pie, use_container_width=True)
+            st.plotly_chart(fig_pie, width="stretch")
             
     with c2:
         st.subheader("Urgency Histogram")
@@ -273,7 +273,7 @@ if not df.empty:
             fig_hist = px.histogram(df, x="ai_urgency", nbins=10, 
                                     color_discrete_sequence=['#636EFA'], title="Distribution of Scores")
             fig_hist.update_layout(bargap=0.1)
-            st.plotly_chart(fig_hist, use_container_width=True)
+            st.plotly_chart(fig_hist, width="stretch")
             
     # --- Trending Tags Bar Chart ---
     st.subheader("🏷️ Top 15 Trending Tags")
@@ -284,7 +284,7 @@ if not df.empty:
         tag_counts = Counter(all_tags).most_common(15)
         tag_df = pd.DataFrame(tag_counts, columns=['Tag', 'Count'])
         fig_bar = px.bar(tag_df, x='Count', y='Tag', orientation='h', color='Count')
-        st.plotly_chart(fig_bar, use_container_width=True)
+        st.plotly_chart(fig_bar, width="stretch")
 
     st.divider()
 
