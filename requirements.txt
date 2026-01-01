@@ -1,9 +1,10 @@
 # Testing
 pytest
 pytest-mock
+httpx  # Needed for API testing
 
 # Monitoring
-# flower (Disabled for now, consider enabling later)
+# flower (Disabled)
 
 # Async & Performance
 gevent
@@ -21,10 +22,11 @@ alembic
 
 # Scraping & Async
 aiohttp
+requests  # Explicitly added (used in AI client & Scraper)
 beautifulsoup4
 tenacity
-trafilatura 
-lxml_html_clean 
+trafilatura
+lxml_html_clean
 
 # Task Queue
 celery
@@ -33,9 +35,8 @@ redis
 # Dashboard
 streamlit
 pandas
-plotly
+plotly    # Needed for the new Charts
 
 # API
-fastapi # TODO: Adding FastAPI for API development
-uvicorn # ASGI server for FastAPI
-httpx # HTTP client for async requests
+fastapi
+uvicorn
