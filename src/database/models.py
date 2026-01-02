@@ -1,6 +1,14 @@
-from sqlalchemy import Column, Integer, String, DateTime, Text, JSON, Boolean, ForeignKey
+from sqlalchemy import Column, Integer, String, DateTime, Text, JSON, Boolean, ForeignKey, Enum
 from sqlalchemy.orm import declarative_base, relationship
 from datetime import datetime, timezone
+import enum
+
+# 1. Define the Enum FIRST so it can be used below
+class AIStatus(str, enum.Enum):
+    PENDING = "pending"
+    PROCESSING = "processing"
+    COMPLETED = "completed"
+    FAILED = "failed"
 
 Base = declarative_base()
 
@@ -34,31 +42,32 @@ class ScrapedData(Base):
     url = Column(String, unique=True, nullable=False)
     title = Column(String)
     
-    # --- NEW COLUMNS: Structured Content ---
+    # --- Structured Content ---
     author = Column(String, nullable=True)
     published_date = Column(String, nullable=True) 
     summary = Column(Text, nullable=True)          
     main_image = Column(String, nullable=True)     
     clean_text = Column(Text, nullable=True)       
-    # ----------------------------------------
     
+    # --- AI METADATA ---
+    # Now this works because AIStatus is defined above
+    ai_status = Column(String(20), default=AIStatus.PENDING, index=True)
+    ai_error_log = Column(Text, nullable=True)
+
     # --- AI ENRICHMENT ---
-    ai_tags = Column(JSON, nullable=True)     # Stores ["tag1", "tag2"]
+    ai_tags = Column(JSON, nullable=True)
     ai_category = Column(String(100), nullable=True)
     ai_urgency = Column(Integer, nullable=True) 
-    # ---------------------
     
-    # Retain this for any extra data that doesn't fit the columns
     content = Column(JSON) 
     created_at = Column(DateTime, default=datetime.now(timezone.utc))
     
-    # --- NEW TABLE --- Scheduled Jobs ---
 class ScheduledJob(Base):
     __tablename__ = 'scheduled_jobs'
     
     id = Column(Integer, primary_key=True)
-    name = Column(String(255), nullable=False)  # e.g., "TechCrunch Home"
-    url = Column(String, nullable=False)        # e.g., "https://techcrunch.com"
+    name = Column(String(255), nullable=False)
+    url = Column(String, nullable=False)
     interval_seconds = Column(Integer, default=3600) 
     is_active = Column(Boolean, default=True)   
     last_triggered_at = Column(DateTime, nullable=True) 

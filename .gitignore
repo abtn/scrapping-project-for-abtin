@@ -6,3 +6,5 @@ qwen-code/
 .continue/
 Prompt.txt
 .gitignore
+migrations/versions/6a889f2b9020_add_ai_status_workflow.py
+.gitignore

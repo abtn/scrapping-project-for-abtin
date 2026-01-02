@@ -20,24 +20,40 @@ services:
     image: redis:7
     container_name: scraper_redis
 
-  # 3. Scraper Worker (The "Chef")
-  worker:
+  # 3a. Fast Scraper Worker
+  scraper_worker:
     build: .
     container_name: scraper_worker
-    # UPDATED COMMAND: Switched to the gevent pool
-    command: celery -A src.scraper.tasks worker --loglevel=info --pool=gevent --concurrency=50 -E
+    # Only consumes 'default' queue. High concurrency for network I/O.
+    command: celery -A src.scraper.tasks worker --loglevel=info --pool=gevent --concurrency=50 -Q default -n worker.scraper@%h
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_started
-      ollama: # <--- NEW: Wait for Brain to wake up
-        condition: service_started
-    environment:
-      - PYTHONPATH=/app  # <--- path
     env_file: .env
     volumes:
-      - .:/app # Hot-reloading: Local changes reflect instantly inside container
+      - .:/app
+
+  # 3b. AI Enrichment Worker
+  ai_worker:
+    build: .
+    container_name: ai_worker
+    # Only consumes 'ai_queue'. Low concurrency to protect Ollama/RAM.
+    # Using 'solo' or 'prefork' with concurrency 1 or 2 is best for heavy AI.
+    command: celery -A src.scraper.tasks worker --loglevel=info --pool=prefork --concurrency=2 -Q ai_queue -n worker.ai@%h
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      ollama:
+        condition: service_started
+    env_file: .env
+    environment:
+      - AI_base_URL=http://ollama:11434 
+    volumes:
+      - .:/app
 
   # 4. Dashboard (The "UI")
   dashboard:

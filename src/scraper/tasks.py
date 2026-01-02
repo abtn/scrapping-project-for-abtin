@@ -1,6 +1,6 @@
 import random
 import requests
-from celery import Celery
+from celery import Celery, chain
 from celery.schedules import crontab
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
@@ -12,12 +12,19 @@ from src.config import settings
 from src.scraper.compliance import is_allowed
 from src.scraper.parsers import parse_smart
 from src.database.connection import SessionLocal
-from src.database.models import ScrapedData, Source, ScrapedLog, ScheduledJob
+# ADDED: AIStatus import
+from src.database.models import ScrapedData, Source, ScrapedLog, ScheduledJob, AIStatus
 
 from src.ai.client import Brain
-from src.database.models import ScheduledJob
 
 app = Celery('scraper', broker=settings.REDIS_URL)
+
+# --- ROUTING CONFIGURATION ---
+# This ensures Fast logic goes to 'default' and Slow logic goes to 'ai_queue'
+app.conf.task_routes = {
+    'src.scraper.tasks.scrape_task': {'queue': 'default'},
+    'src.scraper.tasks.enrich_task': {'queue': 'ai_queue'},
+}
 
 # --- HELPER: Database Logging ---
 def log_event(db, level, message, task_id=None, url=None):
@@ -55,18 +62,29 @@ def fetch_url(session, url):
     return response.text, response.url
 
 # --- HELPER: Analyzer with Retries ---
-@retry(stop=stop_after_attempt(3), wait=wait_fixed(10)) # Wait 10s between tries
+@retry(stop=stop_after_attempt(3), wait=wait_fixed(10)) 
 def safe_analyze(brain, text):
     try:
         return brain.analyze_article(text)
     except Exception:
         print("🧠 Brain is busy or timed out. Retrying...")
-        raise # Tenacity catches this and retries
-# --- CORE LOGIC ---
-@app.task(bind=True) 
+        raise 
+
+# ==========================================
+# TASK 1: THE FAST SCRAPER (Ingestion)
+# ==========================================
+@app.task(bind=True, queue='default') 
 def scrape_task(self, url, job_id=None):
+    """
+    Responsibilities:
+    1. Robots.txt check
+    2. Fetch HTML
+    3. Parse Clean Text
+    4. Save to DB with status='pending'
+    5. Return ID for the next task
+    """
     task_id = self.request.id
-    print(f"👨‍🍳 Chef is starting: {url}")
+    print(f"👨‍🍳 Chef (Fast Worker) started: {url}")
     
     db = SessionLocal()
 
@@ -99,7 +117,7 @@ def scrape_task(self, url, job_id=None):
             msg = f"Blocked by robots.txt: {url}"
             print(f"⛔ {msg}")
             log_event(db, "WARN", msg, task_id, url)
-            return "Blocked"
+            return None # Stop chain
 
         # 2. Fetch Data
         try:
@@ -108,38 +126,10 @@ def scrape_task(self, url, job_id=None):
         except Exception as fetch_err:
             msg = f"Network Error: {fetch_err}"
             log_event(db, "ERROR", msg, task_id, url)
-            return "Failed"
+            return None # Stop chain
 
-        # 3. Parse Data
+        # 3. Parse Data (No AI here!)
         extracted_data = parse_smart(html_content, final_url)
-        
-        # 🧠 AI ENRICHMENT
-        if extracted_data.get('clean_text'):
-            try:
-                # We wrap the brain call in a loop that handles timeouts
-                brain = Brain()
-                ai_data = safe_analyze(brain, extracted_data['clean_text']) # type: ignore # New helper function
-                
-                if ai_data:
-                    extracted_data['ai_tags'] = ai_data.get('tags')
-                    extracted_data['ai_category'] = ai_data.get('category')
-                    extracted_data['ai_urgency'] = ai_data.get('urgency')
-                    
-                    # --- 🛡️ FIX: SANITIZE SUMMARY ---
-                    raw_summary = ai_data.get('summary')
-                    if raw_summary:
-                        if isinstance(raw_summary, dict):
-                            # If AI gives {"point1": "...", "point2": "..."}, join values into one string
-                            extracted_data['summary'] = " ".join([str(v) for v in raw_summary.values()])
-                        elif isinstance(raw_summary, list):
-                            # If AI gives ["Sentence 1", "Sentence 2"], join them
-                            extracted_data['summary'] = " ".join([str(s) for s in raw_summary])
-                        else:
-                            # Otherwise, just use it as string
-                            extracted_data['summary'] = str(raw_summary)
-                    # --------------------------------
-            except Exception as e:
-                print(f"🧠 Brain skipped: {e}")
         
         rich_content = {
             "scraped_at": datetime.now(timezone.utc).isoformat(),
@@ -150,51 +140,136 @@ def scrape_task(self, url, job_id=None):
         existing_record = db.query(ScrapedData).filter(ScrapedData.url == url).first()
         source_id_val = source.id if source else None
         
+        # Prepare basic data
         update_data = {
-            "ai_tags": extracted_data.get('ai_tags'),
-            "ai_category": extracted_data.get('ai_category'),
-            "ai_urgency": extracted_data.get('ai_urgency'),
             "title": extracted_data.get('title'),
             "author": extracted_data.get('author'),
             "published_date": extracted_data.get('published_date'),
-            "summary": extracted_data.get('summary'),
             "main_image": extracted_data.get('main_image'),
             "clean_text": extracted_data.get('clean_text'),
+            "summary": extracted_data.get('summary'), # This is the basic Trafilatura summary
             "content": rich_content,
-            "source_id": source_id_val
+            "source_id": source_id_val,
+            
+            # KEY CHANGE: Reset status to PENDING so AI picks it up
+            "ai_status": AIStatus.PENDING,
+            "ai_error_log": None 
         }
+
+        row_id = None
 
         if existing_record:
             for key, value in update_data.items():
                 setattr(existing_record, key, value)
-            log_event(db, "INFO", f"Updated rich data for {domain}", task_id, url)
+            db.commit()
+            row_id = existing_record.id
+            log_event(db, "INFO", f"Updated basic data for {domain}", task_id, url)
         else:
             new_data = ScrapedData(url=url, **update_data)
             db.add(new_data)
-            log_event(db, "INFO", f"Created rich data for {domain}", task_id, url)
+            db.commit()
+            db.refresh(new_data) # Important to get the ID
+            row_id = new_data.id
+            log_event(db, "INFO", f"Created basic data for {domain}", task_id, url)
         
-        db.commit()
-
-        # 🤖 ADAPTIVE SCHEDULING (Updates interval based on urgency)
-        if job_id and extracted_data.get('ai_urgency'):
-            try:
-                # Use a fresh session for the job update to ensure clean state
-                # (Or strictly reuse db if attached, but re-query is safer here)
-                job = db.query(ScheduledJob).filter(ScheduledJob.id == job_id).first()
-                if job:
-                    adjust_schedule(db, job, extracted_data['ai_urgency'], has_new_content=True)
-            except Exception as e:
-                print(f"⚠️ Scheduler Adjust Failed: {e}")
-        
-        return "Success"
+        # RETURN ID so the next task (enrich_task) knows what to process
+        return row_id
 
     except Exception as e:
         db.rollback()
         print(f"🔥 KITCHEN FIRE: {e}")
         log_event(db, "ERROR", f"Exception: {e}", task_id, url)
-        return "Error"
+        return None
     finally:
         db.close()
+
+# ==========================================
+# TASK 2: THE SLOW ENRICHER (AI Brain)
+# ==========================================
+@app.task(bind=True, queue='ai_queue')
+def enrich_task(self, article_id, job_id=None): # <--- Added job_id=None
+    """
+    Responsibilities:
+    1. Load text from DB
+    2. Call Ollama (Slow)
+    3. Update DB with tags/category/urgency
+    4. Set status='completed'
+    5. Adjust Scheduler
+    """
+    if not article_id:
+        return "Skipped (No ID)"
+        
+    db = SessionLocal()
+    print(f"🧠 Brain (AI Worker) analyzing Article ID: {article_id}")
+
+    try:
+        article = db.query(ScrapedData).filter(ScrapedData.id == article_id).first()
+        if not article:
+            return "Article not found"
+
+        # Idempotency: If it's already done, don't waste GPU cycles
+        if article.ai_status == AIStatus.COMPLETED: # pyright: ignore[reportGeneralTypeIssues]
+            return "Already Completed"
+
+        # Update status to processing
+        article.ai_status = AIStatus.PROCESSING # pyright: ignore[reportAttributeAccessIssue]
+        db.commit()
+
+        # Call the Brain
+        brain = Brain()
+        # safe_analyze handles retries
+        ai_data = safe_analyze(brain, article.clean_text)
+
+        if ai_data:
+            article.ai_tags = ai_data.get('tags')
+            article.ai_category = ai_data.get('category')
+            article.ai_urgency = ai_data.get('urgency')
+            
+            # Sanitize summary
+            raw_summary = ai_data.get('summary')
+            if raw_summary:
+                if isinstance(raw_summary, dict):
+                    article.summary = " ".join([str(v) for v in raw_summary.values()]) # pyright: ignore[reportAttributeAccessIssue]
+                elif isinstance(raw_summary, list):
+                    article.summary = " ".join([str(s) for s in raw_summary]) # pyright: ignore[reportAttributeAccessIssue]
+                else:
+                    article.summary = str(raw_summary) # pyright: ignore[reportAttributeAccessIssue]
+
+            article.ai_status = AIStatus.COMPLETED # pyright: ignore[reportAttributeAccessIssue]
+            article.ai_error_log = None # pyright: ignore[reportAttributeAccessIssue]
+            
+            # 🤖 ADAPTIVE SCHEDULING (Moved here because we need Urgency)
+            if job_id and article.ai_urgency:
+                try:
+                    job = db.query(ScheduledJob).filter(ScheduledJob.id == job_id).first()
+                    if job:
+                        adjust_schedule(db, job, article.ai_urgency, has_new_content=True)
+                except Exception as e:
+                    print(f"⚠️ Scheduler Adjust Failed: {e}")
+
+        else:
+            article.ai_status = AIStatus.FAILED # pyright: ignore[reportAttributeAccessIssue]
+            article.ai_error_log = "AI returned no data (Model might be hallucinating empty JSON)" # pyright: ignore[reportAttributeAccessIssue]
+
+        db.commit()
+        return "Enrichment Success"
+
+    except Exception as e:
+        db.rollback()
+        print(f"🧠 Brain Error: {e}")
+        try:
+            # Re-query in case session is dirty, to save the error
+            err_article = db.query(ScrapedData).filter(ScrapedData.id == article_id).first()
+            if err_article:
+                err_article.ai_status = AIStatus.FAILED # pyright: ignore[reportAttributeAccessIssue]
+                err_article.ai_error_log = str(e) # pyright: ignore[reportAttributeAccessIssue]
+                db.commit()
+        except:
+            pass
+        return f"Enrichment Error: {e}"
+    finally:
+        db.close()
+
 
 # --- SCHEDULER LOGIC ---
 @app.task
@@ -211,20 +286,31 @@ def periodic_check_task():
             if job.last_triggered_at is None:
                 should_run = True 
             else:
+                # Ensure timezone awareness
                 last_run = job.last_triggered_at.replace(tzinfo=timezone.utc) if job.last_triggered_at.tzinfo is None else job.last_triggered_at
                 delta = now - last_run
                 if delta.total_seconds() >= job.interval_seconds:
                     should_run = True
             
             if should_run:
-                print(f"✅ [BEAT] Triggering job: {job.name}")
-                scrape_task.delay(job.url, job_id=job.id)  # type: ignore
-                job.last_triggered_at = now # type: ignore
+                print(f"✅ [BEAT] Triggering chain for job: {job.name}")
+                
+                # --- THE CHAIN ---
+                # 1. Scrape (Fast): Returns article_id
+                # 2. Enrich (Slow): Receives article_id as 1st arg, and job_id as kwarg
+                workflow = chain(
+                    scrape_task.s(job.url, job_id=job.id), # pyright: ignore[reportFunctionMemberAccess]
+                    enrich_task.s(job_id=job.id)  # pyright: ignore[reportFunctionMemberAccess]
+                )
+                workflow.apply_async()
+                # -----------------
+
+                job.last_triggered_at = now # pyright: ignore[reportAttributeAccessIssue]
                 tasks_dispatched += 1
         
         if tasks_dispatched > 0:
             db.commit()
-            return f"Dispatched {tasks_dispatched} tasks."
+            return f"Dispatched {tasks_dispatched} chains."
         return "No tasks due."
 
     except Exception as e:
@@ -233,8 +319,8 @@ def periodic_check_task():
         return "Error"
     finally:
         db.close()
-
-# --- NEW HELPER FUNCTION (Was missing!) ---
+        
+# --- HELPER FUNCTION (Scheduler) ---
 def adjust_schedule(db, job, urgency, has_new_content):
     """
     Adjusts the interval_seconds based on AI urgency.
@@ -249,7 +335,7 @@ def adjust_schedule(db, job, urgency, has_new_content):
             # Important: Check every 30 mins
             new_interval = 1800
         else:
-            # Evergreen: Default to 1 hour, or slow down slightly
+            # Evergreen: Default to 1 hour
             new_interval = max(3600, int(current_interval * 0.95))
     else:
         # No content: Back off exponentially
