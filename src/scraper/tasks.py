@@ -326,20 +326,43 @@ def adjust_schedule(db, job, urgency, has_new_content):
     Adjusts the interval_seconds based on AI urgency.
     """
     current_interval = job.interval_seconds
-    
+
+    # 1. FAST PATH: Python Logic (Deterministic & Safe)
     if has_new_content:
-        if urgency >= 8: 
+        if urgency >= 8:
             # Breaking news: Check every 5 minutes
             new_interval = 300 
         elif urgency >= 5:
             # Important: Check every 30 mins
             new_interval = 1800
         else:
-            # Evergreen: Default to 1 hour
+            # Evergreen: Default to 1 hour, or slow down slightly
             new_interval = max(3600, int(current_interval * 0.95))
     else:
         # No content: Back off exponentially
         new_interval = min(86400, int(current_interval * 1.5))
+
+    # 2. SMART PATH (Future Feature): Local LLM Decision
+    # Uncomment this block when you want to enable "Deep Thinking" scheduling
+    """
+    try:
+        from src.ai.client import Brain
+        brain = Brain()
+        prompt = f"Job: {job.name}, Urgency: {urgency}/10. Current interval: {current_interval}s. Suggest new interval in seconds (int only)."
+        # We use think_schedule (Local LLM) to save API credits
+        decision = brain.think_schedule(prompt)
+        if decision:
+            # Simple cleanup to find numbers in response
+            import re
+            numbers = re.findall(r'\d+', decision)
+            if numbers:
+                suggested = int(numbers[0])
+                # Sanity check: don't go below 1 min or above 2 days
+                if 60 <= suggested <= 172800:
+                    new_interval = suggested
+    except Exception as e:
+        print(f"⚠️ Smart Scheduler Error: {e}")
+    """
         
     job.interval_seconds = int(new_interval)
     print(f"⚖️ Adaptive Scheduler: '{job.name}' urgency={urgency} -> interval={new_interval}s")

@@ -39,9 +39,9 @@ services:
   ai_worker:
     build: .
     container_name: ai_worker
-    # Only consumes 'ai_queue'. Low concurrency to protect Ollama/RAM.
-    # Using 'solo' or 'prefork' with concurrency 1 or 2 is best for heavy AI.
-    command: celery -A src.scraper.tasks worker --loglevel=info --pool=prefork --concurrency=2 -Q ai_queue -n worker.ai@%h
+    # Command uses 'prefork' which is standard for CPU/API bound tasks.
+    # Concurrency 2 is fine for API calls (could even go higher now that it's API based).
+    command: celery -A src.scraper.tasks worker --loglevel=info --pool=prefork --concurrency=4 -Q ai_queue -n worker.ai@%h
     depends_on:
       postgres:
         condition: service_healthy
@@ -50,8 +50,12 @@ services:
       ollama:
         condition: service_started
     env_file: .env
+    # Explicitly pass these if your .env isn't automatically picked up by all configs,
+    # though 'env_file: .env' usually handles it. Adding strictly for clarity:
     environment:
-      - AI_base_URL=http://ollama:11434 
+      - AI_base_URL=http://ollama:11434
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY}
+      - OPENROUTER_MODEL=${OPENROUTER_MODEL}
     volumes:
       - .:/app
 
