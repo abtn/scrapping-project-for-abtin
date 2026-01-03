@@ -1,24 +1,28 @@
-# 🕷️ AI-Powered Enterprise Web Scraper
-(this project is in development, check back later for updates)
+# 🕷️ Nexus — Hybrid AI Intelligence Pipeline
 
-> A self-optimizing, containerized intelligence pipeline that scrapes, analyzes, and categorizes web content using a local Large Language Model (LLM).
+A containerized, self-optimizing web intelligence pipeline that ingests content at scale and enriches it with a Hybrid AI strategy (cloud speed + local privacy). Designed for high-throughput scraping, resilient enrichment, and easy observability.
 
 [![CI Pipeline](https://github.com/abtn/scrapping-project-for-abtin/actions/workflows/ci.yml/badge.svg)](https://github.com/abtn/scrapping-project-for-abtin/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue)
-![FastAPI](https://img.shields.io/badge/FastAPI-0.109-green)
-![Ollama](https://img.shields.io/badge/AI-Ollama%20%2F%20Phi3.5-orange)
+![Celery](https://img.shields.io/badge/Queue-Celery%20%2B%20Redis-green)
+![Hybrid AI](https://img.shields.io/badge/AI-OpenRouter%20%2F%20Ollama-purple)
 
-## 🧠 What Makes This Special?
+---
 
-Unlike traditional scrapers that blindly download text, this system is an **Active Agent**:
+## Overview
 
-1. **AI Enrichment:** Every article is sent to a local "Brain" (Ollama running Phi-3.5 or Llama 3) to generate a **3-sentence summary**, **tags**, **category**, and an **urgency score (1-10)**.
-2. **Adaptive Scheduling:** The system "learns" from the content.
-    * *High Urgency (Breaking News):* Re-scrapes every 5 minutes.
-    * *Low Urgency (Evergreen):* Backs off to once every 24 hours.
-3. **Microservices Architecture:** Fully decoupled services (Ingest, Worker, Storage, API, AI) running via Docker Compose.
+Nexus uses a "Dual‑Brain" Fast/Slow architecture to process thousands of URLs without creating bottlenecks:
 
-## 🏗️ Architecture
+- ⚡ Fast Ingestion (The Body): highly concurrent workers fetch HTML, respect `robots.txt`, extract and persist raw content (≈ 1s/article).
+- 🧠 Smart Enrichment (The Brain): secondary workers perform semantic enrichment through a Hybrid AI pipeline:
+  - Primary (speed): OpenRouter (Mistral/Llama) for fast summaries, tagging, and urgency scoring (≈ 2s/article).
+  - Fallback (resilience): local Ollama instance if the cloud API is unavailable or API keys fail.
+
+This decoupled model ensures ingestion continues even when enrichment is delayed or offline.
+
+---
+
+## Architecture
 
 ```mermaid
 graph TD
@@ -28,115 +32,142 @@ graph TD
         API[FastAPI Backend]
         DB[(PostgreSQL)]
         Redis[(Redis Queue)]
-        Beat[Celery Beat Scheduler]
-        Worker[Celery Worker]
-        Brain[Ollama AI Service]
+        
+        subgraph "Scaling Workers"
+            Scraper[⚡ Scraper Worker]
+            Enricher[🧠 AI Worker]
+        end
+        
+        BrainLocal[Ollama Service]
+        BrainCloud[OpenRouter API]
     end
 
     User -->|Manage Rules| Dash
-    User -->|Search Data| API
-
-    Dash -->|Save Rules| DB
-    Beat -->|Check Schedule| DB
-    Beat -->|Dispatch Task| Redis
-    Redis -->|Trigger| Worker
-    Worker -->|Fetch HTML| Internet((Internet))
-    Worker -->|Analyze Text| Brain
-    Worker -->|Save Rich Data| DB
+    Dash -->|Save Jobs| DB
+    Dash -->|Trigger| Redis
+    
+    Redis -->|Queue: Default| Scraper
+    Scraper -->|Fetch & Parse| Internet((Internet))
+    Scraper -->|Save Raw| DB
+    Scraper -->|Chain Task| Redis
+    
+    Redis -->|Queue: AI| Enricher
+    Enricher -->|1. Try API| BrainCloud
+    Enricher -->|2. Fallback| BrainLocal
+    Enricher -->|Save Metadata| DB
 ```
 
-## 🚀 Quick Start
+---
+
+## Features
+
+- High-concurrency scraping (gevent-backed) with politeness (robots.txt).
+- Celery + Redis task queues with distinct pools for IO (gevent) and CPU/API-bound work (prefork).
+- Hybrid AI enrichment: primary cloud model with automatic local fallback.
+- Streamlit dashboard for live pipeline monitoring and job scheduling.
+- Postgres-backed persistence and straightforward migrations via Alembic.
+- Container-first: Docker Compose for local dev and deployment.
+
+---
+
+## Quick Start
 
 ### Prerequisites
-* **Docker & Docker Compose**
-* (Optional) NVIDIA GPU for faster AI inference (works on CPU too).
+- Docker & Docker Compose
+- OpenRouter API key (sign up at [openrouter.ai](https://openrouter.ai))
 
-### 1. Clone & Configure
+### Clone
 ```bash
 git clone https://github.com/abtn/scrapping-project-for-abtin.git
 cd scrapping-project-for-abtin
-
-# Create the environment file
 touch .env
 ```
 
-Add the following to your `.env`:
+### Configure (.env)
+Populate `.env` with the following (adjust secrets and models as needed):
+
 ```ini
+# Database (PostgreSQL)
 POSTGRES_USER=admin
 POSTGRES_PASSWORD=adminpass
 POSTGRES_DB=scraper_db
 POSTGRES_HOST=postgres
+POSTGRES_PORT=5432
 REDIS_URL=redis://redis:6379/0
 
-# AI Configuration
+# --- AI CONFIGURATION ---
+
+# 1. Primary: OpenRouter (Cloud)
+OPENROUTER_API_KEY=sk-or-v1-YOUR_KEY_HERE
+OPENROUTER_MODEL=mistralai/mistral-small-3.1-24b-instruct:free
+
+# 2. Fallback: Ollama (Local)
 AI_BASE_URL=http://ollama:11434
 AI_MODEL=phi3.5
 ```
 
-### 2. Launch the Stack
-This will build the containers and download the AI model (approx. 2.2GB) on the first run.
+### Launch
+Build and start all services:
 ```bash
 docker compose up --build -d
 ```
 
-### 3. Initialize Database
-Apply the schema and migrations.
+### Initialize DB
+Run database migrations:
 ```bash
 docker exec scraper_api alembic upgrade head
 ```
 
 ---
 
-## 🖥️ User Interfaces
+## Interfaces
 
-### 1. Management Dashboard (Ingestion)
-**URL:** `http://localhost:8501`
-* **Bulk Add:** Paste a list of URLs to scrape immediately.
-* **Scheduler:** Create, edit, and delete recurring scraping jobs.
-* **Analytics:** View data quality stats.
+### Intelligence Dashboard
+- URL: http://localhost:8501
+- Live pipeline status (Pending → Processing → Completed)
+- Visual feed of AI summaries, urgency scores, and tags
+- Job scheduler and re-queue (rescue) operations
 
-### 2. API & Documentation (Consumption)
-**URL:** `http://localhost:8000/docs`
-* **GET /api/v1/articles**: Search articles with filtering (`?q=keyword`).
-* **GET /api/v1/articles/{id}**: Retrieve full clean text and AI metadata.
+### JSON API (OpenAPI)
+- URL: http://localhost:8000/docs
+- Example: `GET /api/v1/articles` — search and retrieve enriched articles
 
 ---
 
-## 🛠️ Development & Commands
+## Development
 
-### Running Tests
-The project includes a full test suite (mocking the Database, Network, and AI).
+### Worker Pools & Responsibilities
+- Scraper Worker: gevent pool (50+ concurrency) — optimized for network I/O and fast ingestion.
+- AI Worker: prefork pool — optimized for CPU and external API latency.
+- Tasks are chained (Celery `chain()`) so enrichment runs only after ingestion completes.
+
+### Run Tests
 ```bash
-# Install local dev deps
-pip install -r requirements.txt
-
-# Run pytest
-pytest tests/ -v
+docker exec scraper_api pytest tests/ -v
 ```
 
-### Database Migrations
-If you modify `src/database/models.py`, generate a new migration:
+### Reset Data
+Clear tables while preserving configuration:
 ```bash
-docker exec scraper_api alembic revision --autogenerate -m "description_of_change"
-docker exec scraper_api alembic upgrade head
+docker exec -i scraper_postgres psql -U admin -d scraper_db -c "TRUNCATE TABLE scraped_data, logs, sources RESTART IDENTITY CASCADE;"
 ```
 
-### Changing the AI Model
-To switch to a different model (e.g., `llama3.2` or `mistral`), simply update your `.env` file and restart:
-```ini
-AI_MODEL=llama3.2
-```
-```bash
-docker compose up -d
-```
-*(Note: The system will automatically pull the new model on startup.)*
+---
 
-## 📦 Tech Stack
+## Operational notes
 
-* **Language:** Python 3.10
-* **Queue:** Celery + Redis
-* **Concurrency:** Gevent (High-performance I/O)
-* **Database:** PostgreSQL + SQLAlchemy + Alembic
-* **AI/ML:** Ollama (Local Inference)
-* **Web Frameworks:** FastAPI (Backend), Streamlit (Frontend)
-* **Parsing:** Trafilatura + BeautifulSoup4
+- Configure the OpenRouter model and Ollama model to match available capacity and privacy requirements.
+- Monitor Redis and Postgres metrics; tune Celery concurrency to match resource limits.
+- Keep the Ollama container accessible on the internal Docker network if using local fallbacks.
+
+---
+
+## Contributing
+
+Contributions, bug reports, and feature requests are welcome. Please open an issue or submit a PR with a clear description and tests when applicable.
+
+---
+
+## License
+
+Specify your license here (e.g., MIT). Update the repository with a LICENSE file.
